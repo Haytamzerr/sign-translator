@@ -12,7 +12,7 @@
  * ten times per second, so the interface never slows down the video loop.
  */
 
-import { AslModel } from '../core/asl/model';
+import type { AslModel } from '../core/asl/model';
 import { compactFrame, type RawFrame } from '../core/asl/features';
 import { SignDecoder, type Commit, type DecoderState } from '../core/decoder';
 import { extractFrame, hasHands } from '../core/features';
@@ -63,7 +63,8 @@ export class SignEngine {
   private lastFrameTime = 0;
   private flashUntil = 0;
   private paused = false;
-  private asl = new AslModel();
+  /** Loaded only when needed, so the app starts fast without it. */
+  private asl: AslModel | null = null;
   private aslLoad: Promise<boolean> | null = null;
   private rawBuffer: { t: number; raw: RawFrame; frame: Frame }[] = [];
   /** Turns a model label (English) into the interface language. */
@@ -213,9 +214,12 @@ export class SignEngine {
       this.update({ pretrained: 'off' });
       return;
     }
-    if (!this.asl.ready) {
+    if (!this.asl?.ready) {
       this.update({ pretrained: 'loading' });
-      this.aslLoad ??= this.asl.load();
+      this.aslLoad ??= import('../core/asl/model').then(({ AslModel }) => {
+        this.asl ??= new AslModel();
+        return this.asl.load();
+      });
       const ok = await this.aslLoad;
       if (!ok) {
         this.aslLoad = null;
@@ -233,7 +237,7 @@ export class SignEngine {
   }
 
   get pretrainedLabels(): string[] {
-    return this.asl.labels;
+    return this.asl?.labels ?? [];
   }
 
   stop(): void {
@@ -286,13 +290,14 @@ export class SignEngine {
     let frame = extractFrame(raw, aspect, now);
     if (this.settings.smoothing) frame = this.smoother.smooth(frame);
 
-    const aslOn = this.snapshot.pretrained === 'ready';
-    if (aslOn) {
+    const asl = this.snapshot.pretrained === 'ready' ? this.asl : null;
+    const aslOn = asl !== null;
+    if (asl) {
       if (pose?.[0] && pose[11] && pose[12]) {
         const sq = (i: number): [number, number] => [pose[i]!.x * aspect, pose[i]!.y];
-        this.asl.observePose(sq(0), sq(11), sq(12));
+        asl.observePose(sq(0), sq(11), sq(12));
       }
-      this.rawBuffer.push({ t: now, raw: compactFrame(raw, pose, aspect * this.asl.xStretch), frame });
+      this.rawBuffer.push({ t: now, raw: compactFrame(raw, pose, aspect * asl.xStretch), frame });
       while (this.rawBuffer.length && now - this.rawBuffer[0]!.t > RAW_BUFFER_MS) this.rawBuffer.shift();
     }
 
@@ -334,7 +339,7 @@ export class SignEngine {
   /** Runs the pre-trained model on a finished movement and writes the word if sure. */
   private async classifySegment(segment: { start: number; end: number }): Promise<void> {
     const part = this.rawBuffer.filter((r) => r.t >= segment.start - SEGMENT_LEAD_MS && r.t <= segment.end);
-    if (part.length < 6) return;
+    if (part.length < 6 || !this.asl) return;
     try {
       const guesses = await this.asl.classify(part.map((p) => p.raw));
       const threshold = this.settings.pretrainedConfidence;
