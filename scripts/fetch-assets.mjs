@@ -35,7 +35,7 @@ function copyOnnxRuntime() {
   const dest = join(root, 'public', 'ort');
   if (!existsSync(src)) return;
   mkdirSync(dest, { recursive: true });
-  for (const file of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
+  for (const file of ['ort-wasm-simd-threaded.wasm']) {
     copyFileSync(join(src, file), join(dest, file));
   }
   console.log('[assets] ONNX Runtime copied to public/ort');
