@@ -21,6 +21,10 @@ export interface Settings {
   moveThreshold: number;
   smoothing: boolean;
   eitherHand: boolean;
+  /** Use the pre-trained ASL model (when the sign language is ASL). */
+  pretrained: boolean;
+  /** Minimum probability for the pre-trained model to write a word. */
+  pretrainedConfidence: number;
   sentencePauseMs: number;
   autoSpeak: boolean;
   voiceURI: string;
@@ -35,7 +39,7 @@ function defaultUiLanguage(): UiLanguage {
 export function defaultSettings(): Settings {
   return {
     uiLanguage: defaultUiLanguage(),
-    signLanguage: 'custom',
+    signLanguage: 'asl',
     cameraId: '',
     resolution: 'fast',
     mirror: true,
@@ -51,6 +55,8 @@ export function defaultSettings(): Settings {
     moveThreshold: 1.5,
     smoothing: true,
     eitherHand: true,
+    pretrained: true,
+    pretrainedConfidence: 0.5,
     sentencePauseMs: 2000,
     autoSpeak: false,
     voiceURI: '',

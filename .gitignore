@@ -2,5 +2,6 @@ node_modules
 dist
 *.tsbuildinfo
 public/mediapipe
-public/models
+public/models/*.task
+public/ort
 .DS_Store

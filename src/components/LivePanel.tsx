@@ -17,6 +17,7 @@ export function LivePanel({
   moveThreshold,
   t,
   locale,
+  pretrainedCount,
   onTeach,
 }: {
   snap: EngineSnapshot;
@@ -25,6 +26,7 @@ export function LivePanel({
   moveThreshold: number;
   t: Translate;
   locale: string;
+  pretrainedCount: number;
   onTeach: () => void;
 }) {
   // Motion meter: full bar at three times the threshold, with a tick at the threshold.
@@ -32,7 +34,18 @@ export function LivePanel({
 
   return (
     <div className="panel-body">
-      {librarySize === 0 && (
+      {snap.pretrained !== 'off' && (
+        <p className={`model-status is-${snap.pretrained}`}>
+          <span className="dot" aria-hidden="true" />
+          {snap.pretrained === 'loading'
+            ? t('pretrainedLoading')
+            : snap.pretrained === 'ready'
+              ? t('pretrainedReady', { n: pretrainedCount })
+              : t('pretrainedMissing')}
+        </p>
+      )}
+
+      {librarySize === 0 && snap.pretrained !== 'ready' && (
         <div className="callout">
           <h3>{t('emptyLibraryTitle')}</h3>
           <p>{t('emptyLibraryBody')}</p>
@@ -53,7 +66,9 @@ export function LivePanel({
               return (
                 <li key={c.signId} className={accepted ? 'is-accepted' : ''}>
                   <span className="guess-label">{c.label}</span>
-                  <span className="guess-kind">{c.kind === 'static' ? t('stillSign') : t('movingSign')}</span>
+                  <span className="guess-kind">
+                    {c.signId.startsWith('asl:') ? t('builtIn') : c.kind === 'static' ? t('stillSign') : t('movingSign')}
+                  </span>
                   <span className="guess-value">{Math.round(c.confidence * 100)}%</span>
                   <span className="guess-bar" style={{ transform: `scaleX(${c.confidence})` }} aria-hidden="true" />
                 </li>
