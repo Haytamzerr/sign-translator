@@ -70,6 +70,12 @@ camera frame
 Each sign gets its own acceptance threshold, calibrated automatically from how
 consistent its examples are.
 
+## Understanding the code
+
+Start with [docs/CODE_GUIDE.md](docs/CODE_GUIDE.md): a reading path from the camera to the words,
+with links to the exact lines. In VS Code, the CodeTour extension plays the same
+path as a guided tour (`.tours/signal.tour`).
+
 ## Project structure
 
 ```
