@@ -31,7 +31,7 @@ camera frame
 
 ### Where the app starts
 
-[`src/main.tsx`, line 2](../src/main.tsx#L2)
+[`src/main.tsx`, line 6](../src/main.tsx#L6)
 
 The browser loads index.html, which runs this file. It mounts the React component App into the page.
 
