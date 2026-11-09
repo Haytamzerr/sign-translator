@@ -12,7 +12,8 @@
 # - asl_labels.json   the 250 words, in the order of the network's outputs
 # - asl_parity.json   test data proving the app prepares input exactly like here
 #
-# Run with: Accelerator = GPU, Internet = on. Takes about 30-60 minutes.
+# Works with or without a GPU. With a GPU it takes about 30-60 minutes; on CPU
+# a smaller network is trained within a time budget (default 7 hours).
 
 # %%
 import json, math, os, random, time, warnings
@@ -60,7 +61,7 @@ POSE = list(range(489, 522))
 RIGHT_HAND = list(range(522, 543))
 COMPACT = LEFT_HAND + RIGHT_HAND + [POSE[i] for i in POSE_KEEP]
 N_POINTS = len(COMPACT)                           # 49
-MAX_LEN = 64                                      # frames given to the network
+MAX_LEN = 48                                      # frames given to the network
 
 # Body pairs swapped when mirroring (index inside the 7 body points).
 POSE_SWAP = [0, 2, 1, 4, 3, 6, 5]
@@ -213,7 +214,8 @@ print(len(tr_idx), 'training /', len(val_idx), 'validation recordings')
 # Only standard operations, so it exports cleanly to the browser.
 
 # %%
-D = 192
+# Smaller network on CPU so training finishes in a few hours.
+D = 192 if DEVICE == 'cuda' else 128
 
 class ConvBlock(nn.Module):
     def __init__(self, d, k=17, expand=2, drop=0.2):
@@ -266,14 +268,23 @@ print(sum(p.numel() for p in model.parameters()) / 1e6, 'M parameters')
 
 # %%
 EPOCHS = int(os.environ.get('ASL_EPOCHS', 80))
+# Training stops when the time budget is used up; the learning rate follows the
+# time used, so the run always ends with a properly finished schedule.
+BUDGET_S = float(os.environ.get('ASL_BUDGET_HOURS', 10 if DEVICE == 'cuda' else 7)) * 3600
+if DEVICE == 'cpu':
+    torch.set_num_threads(max(1, os.cpu_count() - 1))
 BATCH = int(os.environ.get('ASL_BATCH', 128))
-workers = min(8, os.cpu_count())
+workers = min(8, os.cpu_count()) if DEVICE == 'cuda' else 1
 tr_loader = torch.utils.data.DataLoader(SignData(tr_idx, True), BATCH, shuffle=True, num_workers=workers, drop_last=True, persistent_workers=True)
 va_loader = torch.utils.data.DataLoader(SignData(val_idx, False), 256, num_workers=workers)
 
 opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.05)
 steps = EPOCHS * len(tr_loader)
-sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=1e-3, total_steps=steps, pct_start=0.1)
+MAX_LR = 1e-3
+def set_lr(progress):
+    # 5% warm-up, then cosine decay to zero.
+    lr = MAX_LR * progress / 0.05 if progress < 0.05 else MAX_LR * 0.5 * (1 + math.cos(math.pi * (progress - 0.05) / 0.95))
+    for g in opt.param_groups: g['lr'] = lr
 scaler = torch.amp.GradScaler(enabled=DEVICE == 'cuda')
 loss_fn = nn.CrossEntropyLoss(label_smoothing=0.2)
 
@@ -290,21 +301,27 @@ def evaluate():
     return correct / total, top5 / total
 
 best = 0.0
+start = time.time(); step = 0; done = False
 for epoch in range(EPOCHS):
-    t0 = time.time(); running = 0.0
+    t0 = time.time(); running = 0.0; n = 0
     for x, m, y in tr_loader:
+        progress = max(step / steps, (time.time() - start) / BUDGET_S)
+        if progress >= 1: done = True; break
+        set_lr(progress); step += 1; n += 1
         x, m, y = x.to(DEVICE), m.to(DEVICE), y.to(DEVICE)
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=DEVICE == 'cuda'):
             loss = loss_fn(model(x, m), y)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt); nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        scaler.step(opt); scaler.update(); sched.step()
+        scaler.step(opt); scaler.update()
         running += loss.item()
+    if n == 0: break
     acc, acc5 = evaluate()
     if acc > best:
         best = acc; torch.save(model.state_dict(), OUT / 'best.pt')
-    print(f'epoch {epoch + 1:3d}  loss {running / len(tr_loader):.3f}  val top-1 {acc:.3f}  top-5 {acc5:.3f}  ({time.time() - t0:.0f} s)')
+    print(f'epoch {epoch + 1:3d}  loss {running / n:.3f}  val top-1 {acc:.3f}  top-5 {acc5:.3f}  ({time.time() - t0:.0f} s, {100 * min(progress, 1):.0f}% of schedule)', flush=True)
+    if done: break
 
 print(f'Best validation accuracy on unseen signers: {best:.3f}')
 
@@ -323,6 +340,7 @@ except TypeError:
 print('ONNX size:', round(os.path.getsize(OUT / 'asl_model.onnx') / 1e6, 2), 'MB')
 
 json.dump(labels, open(OUT / 'asl_labels.json', 'w'))
+json.dump({'maxLen': MAX_LEN, 'features': N_FEATURES, 'valAccuracy': round(best, 4)}, open(OUT / 'asl_config.json', 'w'))
 
 # Parity data: raw input, expected features and expected scores for a few
 # validation recordings. The app's tests check that it computes the same.
@@ -352,4 +370,4 @@ x, m = prepare(RAW[val_idx[0]].astype(np.float32))
 onnx_out = sess.run(None, {'x': x[None], 'mask': m[None]})[0][0]
 torch_out = model(torch.from_numpy(x)[None], torch.from_numpy(m)[None])[0].detach().numpy()
 print('ONNX vs PyTorch max difference:', float(np.abs(onnx_out - torch_out).max()))
-print('Done. Download asl_model.onnx, asl_labels.json and asl_parity.json from the Output panel.')
+print('Done. Download asl_model.onnx, asl_labels.json, asl_config.json and asl_parity.json from the Output panel.')
