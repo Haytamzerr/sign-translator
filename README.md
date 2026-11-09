@@ -1,13 +1,17 @@
 # Signal: live sign language translator
 
 Signal watches your hands through your webcam and turns signs into text on
-screen, in real time. You teach it your own signs: perform a gesture a few
-times, give it a meaning, and the app recognizes it from then on.
+screen, in real time. It recognizes 250 common American Sign Language (ASL)
+signs out of the box, and you can teach it any other sign: perform a gesture a
+few times, give it a meaning, and the app recognizes it from then on.
 
 Everything runs on your own computer. No video is uploaded anywhere.
 
 ## Features
 
+- Built-in ASL vocabulary: a neural network trained on about 94,000 recordings
+  recognizes 250 everyday ASL signs without any teaching, shown in English,
+  French or Arabic
 - Live hand tracking (21 points per hand, two hands) with a skeleton overlay
 - Two kinds of signs, detected automatically:
   - **Still signs**: a held handshape (for example most fingerspelled letters)
@@ -58,6 +62,7 @@ camera frame
   -> recognizer:
        still signs  -> nearest examples (k-nearest neighbors)
        moving signs -> Dynamic Time Warping against each example
+       ASL          -> pre-trained neural network (hands + body points)
   -> confidence check against an "unknown" option
   -> word written to the caption
 ```
@@ -80,6 +85,7 @@ src/
     tracker.ts          MediaPipe hand tracking
     storage.ts          sign library in IndexedDB, export and import
     speech.ts           text-to-speech
+    asl/                built-in ASL model: input preparation, inference, labels
     core.test.ts        unit tests
   state/
     engine.ts           real-time loop: camera to words
@@ -87,6 +93,25 @@ src/
   components/           interface (React)
   i18n/strings.ts       English, French and Arabic text
 ```
+
+## Training the built-in ASL model
+
+The model in `public/models/asl/` is produced by `training/train_asl.ipynb`.
+To retrain it, open the notebook on Kaggle, add the
+[Isolated Sign Language Recognition](https://www.kaggle.com/competitions/asl-signs)
+competition data, and run it (a GPU makes it much faster). It writes
+`asl_model.onnx`, `asl_labels.json`, `asl_config.json` and `asl_parity.json`.
+The parity file lets `npm test` check that the app prepares the network's input
+exactly like the notebook.
+
+## Credits
+
+The built-in ASL vocabulary is trained on the PopSign ASL dataset, released by
+Google, the Georgia Institute of Technology, the National Technical Institute
+for the Deaf and the Rochester Institute of Technology through the Kaggle
+competition "Google - Isolated Sign Language Recognition", under the
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. Hand and body
+tracking use [MediaPipe](https://ai.google.dev/edge/mediapipe) by Google.
 
 ## Privacy
 
