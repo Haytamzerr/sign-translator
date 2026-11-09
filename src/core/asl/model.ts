@@ -64,7 +64,8 @@ export class AslModel {
       if (typeof (config as AslConfig & { bodyRatio?: number }).bodyRatio === 'number') {
         this.trainingRatio = (config as AslConfig & { bodyRatio: number }).bodyRatio;
       }
-      ort.env.wasm.wasmPaths = `${base}ort/`;
+      // Only the WebAssembly binary is loaded from /ort; its loader is bundled with the app.
+      ort.env.wasm.wasmPaths = { wasm: `${base}ort/ort-wasm-simd-threaded.wasm` };
       ort.env.wasm.numThreads = 1;
       this.session = await ort.InferenceSession.create(`${MODEL_DIR}asl_model.onnx`, {
         executionProviders: ['wasm'],
