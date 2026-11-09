@@ -44,6 +44,11 @@ export interface DecoderOutput {
   /** Current best guesses, best first. */
   candidates: Candidate[];
   commit: Commit | null;
+  /**
+   * Set when a movement has just ended: its time span, and whether the personal
+   * library already wrote a word for it. Used by the pre-trained model.
+   */
+  segment: { start: number; end: number; committed: boolean } | null;
 }
 
 /** Frames of the moving segment kept from before motion was detected. */
@@ -71,6 +76,7 @@ export class SignDecoder {
   private cooldownUntil = 0;
   private frameCount = 0;
   private lastCandidates: Candidate[] = [];
+  private finished: DecoderOutput['segment'] = null;
 
   constructor(
     private recognizer: Recognizer,
@@ -179,6 +185,9 @@ export class SignDecoder {
     const segment = this.history.slice(this.segmentStart, end);
     this.segmentStart = -1;
     this.stillCount = 0;
+    if (segment.length >= MIN_SEGMENT) {
+      this.finished = { start: segment[0]!.t, end: segment[segment.length - 1]!.t, committed: false };
+    }
     if (segment.length < MIN_SEGMENT || !this.recognizer.hasDynamic) return null;
 
     const candidates = this.recognizer.classifyDynamic(segment);
@@ -188,10 +197,18 @@ export class SignDecoder {
 
     const last = segment[segment.length - 1]!;
     this.cooldownUntil = last.t + COOLDOWN_MS;
+    if (this.finished) this.finished.committed = true;
     return { signId: best.signId, label: best.label, confidence: best.confidence, kind: best.kind, frames: segment, t: last.t };
   }
 
+  /** Tells the decoder that a word was written from outside (pre-trained model). */
+  noteExternalCommit(t: number): void {
+    this.cooldownUntil = t + COOLDOWN_MS;
+  }
+
   private output(commit: Commit | null): DecoderOutput {
-    return { state: this.state, motion: this.motion, candidates: this.lastCandidates.slice(0, 3), commit };
+    const segment = this.finished;
+    this.finished = null;
+    return { state: this.state, motion: this.motion, candidates: this.lastCandidates.slice(0, 3), commit, segment };
   }
 }

@@ -5,10 +5,15 @@
  *                -> decoder (when did a sign happen?) -> recognizer (which sign?)
  *                -> committed word
  *
+ * For ASL, a pre-trained neural network also checks every finished movement,
+ * so the 250 signs it knows are recognized without any teaching.
+ *
  * It runs outside React on purpose: React only receives a small summary about
  * ten times per second, so the interface never slows down the video loop.
  */
 
+import { AslModel } from '../core/asl/model';
+import { compactFrame, type RawFrame } from '../core/asl/features';
 import { SignDecoder, type Commit, type DecoderState } from '../core/decoder';
 import { extractFrame, hasHands } from '../core/features';
 import { Recognizer } from '../core/recognizer';
@@ -19,6 +24,8 @@ import type { Settings } from './settings';
 
 export type EngineStatus = 'off' | 'loading' | 'running' | 'error';
 export type EngineError = 'denied' | 'missing' | 'busy' | 'model' | null;
+/** State of the pre-trained ASL model. */
+export type PretrainedStatus = 'off' | 'loading' | 'ready' | 'missing';
 
 export interface EngineSnapshot {
   status: EngineStatus;
@@ -30,12 +37,17 @@ export interface EngineSnapshot {
   motion: number;
   candidates: Candidate[];
   handsVisible: boolean;
+  pretrained: PretrainedStatus;
 }
 
 /** Colors of the drawn skeleton: right hand and left hand of the signer. */
 const COLORS = { Right: '#f2b544', Left: '#5ec8e0' } as const;
 const FINGERTIPS = new Set([4, 8, 12, 16, 20]);
 const UI_UPDATE_MS = 100;
+/** Recent frames kept for the pre-trained model, in ms. */
+const RAW_BUFFER_MS = 6000;
+/** Time added before a movement, so the network sees the start of the sign. */
+const SEGMENT_LEAD_MS = 200;
 
 export class SignEngine {
   private tracker = new HandTracker();
@@ -51,6 +63,11 @@ export class SignEngine {
   private lastFrameTime = 0;
   private flashUntil = 0;
   private paused = false;
+  private asl = new AslModel();
+  private aslLoad: Promise<boolean> | null = null;
+  private rawBuffer: { t: number; raw: RawFrame; frame: Frame }[] = [];
+  /** Turns a model label (English) into the interface language. */
+  translateLabel: (label: string) => string = (label) => label;
 
   private snapshot: EngineSnapshot = {
     status: 'off',
@@ -61,6 +78,7 @@ export class SignEngine {
     motion: 0,
     candidates: [],
     handsVisible: false,
+    pretrained: 'off',
   };
 
   private subscribers = new Set<() => void>();
@@ -123,6 +141,9 @@ export class SignEngine {
     this.decoder.setSettings(this.decoderSettings(settings));
     if (previous.numHands !== settings.numHands) void this.tracker.setNumHands(settings.numHands);
     if (previous.delegate !== settings.delegate) this.tracker.close();
+    if (previous.signLanguage !== settings.signLanguage || previous.pretrained !== settings.pretrained) {
+      void this.syncPretrained();
+    }
     const restart =
       previous.cameraId !== settings.cameraId ||
       previous.resolution !== settings.resolution ||
@@ -181,6 +202,38 @@ export class SignEngine {
     this.running = true;
     this.update({ status: 'running' });
     this.scheduleNext();
+    void this.syncPretrained();
+  }
+
+  /** Turns the pre-trained ASL model (and body tracking) on or off. */
+  private async syncPretrained(): Promise<void> {
+    const wanted = this.settings.pretrained && this.settings.signLanguage === 'asl';
+    if (!wanted) {
+      await this.tracker.enablePose(false);
+      this.update({ pretrained: 'off' });
+      return;
+    }
+    if (!this.asl.ready) {
+      this.update({ pretrained: 'loading' });
+      this.aslLoad ??= this.asl.load();
+      const ok = await this.aslLoad;
+      if (!ok) {
+        this.aslLoad = null;
+        this.update({ pretrained: 'missing' });
+        return;
+      }
+    }
+    try {
+      if (this.tracker.ready) await this.tracker.enablePose(true);
+      this.update({ pretrained: 'ready' });
+    } catch (err) {
+      console.error('Body tracking could not start', err);
+      this.update({ pretrained: 'missing' });
+    }
+  }
+
+  get pretrainedLabels(): string[] {
+    return this.asl.labels;
   }
 
   stop(): void {
@@ -226,12 +279,22 @@ export class SignEngine {
   private processFrame(video: HTMLVideoElement): void {
     const now = performance.now();
     const t0 = performance.now();
-    const raw = this.tracker.detect(video, now);
+    const { hands: raw, pose } = this.tracker.detect(video, now);
     const inference = performance.now() - t0;
 
     const aspect = video.videoWidth / video.videoHeight;
     let frame = extractFrame(raw, aspect, now);
     if (this.settings.smoothing) frame = this.smoother.smooth(frame);
+
+    const aslOn = this.snapshot.pretrained === 'ready';
+    if (aslOn) {
+      if (pose?.[0] && pose[11] && pose[12]) {
+        const sq = (i: number): [number, number] => [pose[i]!.x * aspect, pose[i]!.y];
+        this.asl.observePose(sq(0), sq(11), sq(12));
+      }
+      this.rawBuffer.push({ t: now, raw: compactFrame(raw, pose, aspect * this.asl.xStretch), frame });
+      while (this.rawBuffer.length && now - this.rawBuffer[0]!.t > RAW_BUFFER_MS) this.rawBuffer.shift();
+    }
 
     for (const listener of this.frameListeners) listener(frame);
 
@@ -242,6 +305,7 @@ export class SignEngine {
         this.flashUntil = now + 300;
         for (const listener of this.commitListeners) listener(output.commit);
       }
+      if (aslOn && output.segment && !output.segment.committed) void this.classifySegment(output.segment);
     }
 
     this.draw(raw, video, now);
@@ -264,6 +328,40 @@ export class SignEngine {
       });
     } else {
       this.snapshot = { ...this.snapshot, fps, inferenceMs };
+    }
+  }
+
+  /** Runs the pre-trained model on a finished movement and writes the word if sure. */
+  private async classifySegment(segment: { start: number; end: number }): Promise<void> {
+    const part = this.rawBuffer.filter((r) => r.t >= segment.start - SEGMENT_LEAD_MS && r.t <= segment.end);
+    if (part.length < 6) return;
+    try {
+      const guesses = await this.asl.classify(part.map((p) => p.raw));
+      const threshold = this.settings.pretrainedConfidence;
+      const candidates: Candidate[] = guesses.map((g) => ({
+        signId: `asl:${g.index}`,
+        label: this.translateLabel(g.label),
+        kind: 'dynamic',
+        distance: 1 - g.confidence,
+        ratio: g.confidence >= threshold ? 0.5 : 1.5,
+        confidence: g.confidence,
+      }));
+      this.update({ candidates });
+      const best = candidates[0];
+      if (!best || best.confidence < threshold || !this.running || this.paused) return;
+      const commit: Commit = {
+        signId: best.signId,
+        label: best.label,
+        confidence: best.confidence,
+        kind: 'dynamic',
+        frames: part.map((p) => p.frame),
+        t: segment.end,
+      };
+      this.decoder.noteExternalCommit(segment.end);
+      this.flashUntil = performance.now() + 300;
+      for (const listener of this.commitListeners) listener(commit);
+    } catch (err) {
+      console.error('Pre-trained model failed on this sign', err);
     }
   }
 

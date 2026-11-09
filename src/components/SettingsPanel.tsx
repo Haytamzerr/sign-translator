@@ -154,6 +154,25 @@ export function SettingsPanel({
             onChange={(moveThreshold) => update({ moveThreshold })}
           />
         </Field>
+        {settings.signLanguage === 'asl' && (
+          <>
+            <div className="field">
+              <Toggle label={t('settingPretrained')} checked={settings.pretrained} onChange={(pretrained) => update({ pretrained })} />
+              <p className="field-help">{t('settingPretrainedHelp')}</p>
+            </div>
+            <Field label={t('settingPretrainedConfidence')}>
+              <Slider
+                label={t('settingPretrainedConfidence')}
+                value={settings.pretrainedConfidence}
+                min={0.2}
+                max={0.9}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(pretrainedConfidence) => update({ pretrainedConfidence })}
+              />
+            </Field>
+          </>
+        )}
         <Toggle label={t('settingSmoothing')} checked={settings.smoothing} onChange={(smoothing) => update({ smoothing })} />
         <Toggle label={t('settingEitherHand')} checked={settings.eitherHand} onChange={(eitherHand) => update({ eitherHand })} />
       </section>

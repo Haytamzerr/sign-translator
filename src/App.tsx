@@ -11,6 +11,7 @@ import { LivePanel, type TranscriptLine } from './components/LivePanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Stage, type TeachOverlay } from './components/Stage';
 import { TeachPanel } from './components/TeachPanel';
+import { translateAslLabel } from './core/asl/labels';
 import { speak } from './core/speech';
 import { deleteSign, importLibrary, loadSigns, saveSign } from './core/storage';
 import { prepareTake } from './core/teach';
@@ -90,6 +91,9 @@ export default function App() {
   }, [settings.signLanguage]);
 
   useEffect(() => engine.setLibrary(signs), [engine, signs]);
+  useEffect(() => {
+    engine.translateLabel = (label) => translateAslLabel(label, settings.uiLanguage);
+  }, [engine, settings.uiLanguage]);
   useEffect(() => () => engine.stop(), [engine]);
 
   // New word recognized -> add it to the caption.
@@ -219,6 +223,7 @@ export default function App() {
               moveThreshold={settings.moveThreshold}
               t={t}
               locale={settings.uiLanguage}
+              pretrainedCount={engine.pretrainedLabels.length}
               onTeach={() => setTab('teach')}
             />
           )}

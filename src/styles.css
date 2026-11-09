@@ -806,6 +806,31 @@ p {
   color: var(--muted);
 }
 
+/* Built-in model status */
+
+.model-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.model-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.model-status.is-ready .dot {
+  background: var(--ok);
+}
+
+.model-status.is-missing .dot {
+  background: var(--danger);
+}
+
 /* Guesses */
 
 .guesses {
