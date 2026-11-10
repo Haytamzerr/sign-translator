@@ -53,8 +53,10 @@ BROW_R = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107]
 FACE = FACE_OVAL + LIPS + EYE_L + EYE_R + BROW_L + BROW_R            # 108 points
 LEFT_HAND = list(range(468, 489)); POSE0 = 489; RIGHT_HAND = list(range(522, 543))
 POSE_ARMS = [POSE0 + i for i in (11, 12, 13, 14, 15, 16)]            # shoulders, elbows, wrists
-# Layout of one demo frame: left hand 21, right hand 21, arms 6, face 108 = 156 points.
-DEMO_POINTS = LEFT_HAND + RIGHT_HAND + POSE_ARMS + FACE
+# Body for the 3D figure: nose, shoulders, elbows, wrists, hips.
+POSE_BODY = [POSE0 + i for i in (0, 11, 12, 13, 14, 15, 16, 23, 24)]
+# Layout of one demo frame: left hand 21, right hand 21, body 9, face 108 = 159 points, x y z each.
+DEMO_POINTS = LEFT_HAND + RIGHT_HAND + POSE_BODY + FACE
 MAX_DEMO_FRAMES = 60
 TYPICAL_BODY_RATIO = 0.55   # (nose to shoulder line) / shoulder width for a webcam
 
@@ -127,30 +129,74 @@ def run_demos():
             e = np.exp(logits - logits.max()); prob = float(e[labels.index(row.sign)] / e.sum())
         score = prob + 0.3 * max(lh, rh) + 0.1 * face_ok
         if row.sign not in chosen or score > chosen[row.sign][0]:
-            chosen[row.sign] = (score, prob, xy)
+            chosen[row.sign] = (score, prob, xy, row.path)
     missing = [s for s in labels if s not in chosen]
     print('demos chosen:', len(chosen), '| missing:', missing)
 
     # Body proportions of the chosen recordings give the x stretch of the phone videos.
     ratios = []
-    for _, _, xy in chosen.values():
+    for _, _, xy, _ in chosen.values():
         nose, ls, rs = xy[:, POSE0], xy[:, POSE0 + 11], xy[:, POSE0 + 12]
         w = np.linalg.norm(ls - rs, axis=-1); h = (ls[:, 1] + rs[:, 1]) / 2 - nose[:, 1]
         r = h / w; ratios.extend(r[np.isfinite(r) & (r > 0.1) & (r < 2)].tolist())
     x_fix = float(np.median(ratios)) / TYPICAL_BODY_RATIO   # multiply x by this to get square units
     print(f'body ratio {np.median(ratios):.3f} -> x correction {x_fix:.3f}')
 
+    from scipy.signal import savgol_filter
+
+    def smooth(series):
+        """Fills gaps of up to 8 frames, then removes jitter (Savitzky-Golay, window 7)."""
+        out = series.copy(); t = np.arange(len(series)); ok = ~np.isnan(series)
+        if ok.sum() >= 2:
+            filled = np.interp(t, t[ok], series[ok])
+            gap = np.zeros(len(series), int)
+            run = 0
+            for i in range(len(series)):
+                run = run + 1 if not ok[i] else 0; gap[i] = run
+            # Keep only gaps short enough to be tracking glitches.
+            for i in range(len(series) - 1, -1, -1):
+                if not ok[i]:
+                    j = i
+                    while j >= 0 and not ok[j]: j -= 1
+                    length = i - j
+                    first_valid = ok[:i].any() and ok[i:].any()
+                    if length <= 8 and first_valid: out[j + 1:i + 1] = filled[j + 1:i + 1]
+        good = ~np.isnan(out)
+        start = None
+        for i in range(len(out) + 1):
+            if i < len(out) and good[i]:
+                if start is None: start = i
+            elif start is not None:
+                if i - start >= 7: out[start:i] = savgol_filter(out[start:i], 7, 2)
+                start = None
+        return out
+
     index = []; chunks = []; offset = 0
     for sign in labels:
         if sign not in chosen:
             continue
-        _, prob, xy = chosen[sign]
-        pts = xy[:, DEMO_POINTS, :].copy()
+        _, prob, _, path = chosen[sign]
+        raw = pd.read_parquet(data / path, columns=['x', 'y', 'z']).values.reshape(-1, 543, 3).astype(np.float32)
+        pts = raw[:, DEMO_POINTS, :].copy()
+        # Depth: the body's depth is measured from the middle of the shoulders. Hand
+        # and face depths are kept as recorded, relative to their own wrist and face
+        # centre: the app only needs the shape of the hand and the turn of the head,
+        # and adding the (very noisy) body depth would push most of them out of range.
+        face0 = 21 * 2 + len(POSE_BODY)
+        body = slice(42, face0)
         pts[..., 0] *= x_fix
-        ls, rs = pts[:, 42], pts[:, 43]
+        pts[..., 2] *= x_fix
+        ls, rs = pts[:, 43, :], pts[:, 44, :]
         center = np.nanmean((ls + rs) / 2, axis=0)
-        width = np.nanmean(np.linalg.norm(ls - rs, axis=-1))
-        pts = (pts - center) / width
+        width = np.nanmean(np.linalg.norm(ls[:, :2] - rs[:, :2], axis=-1))
+        pts[..., :2] = (pts[..., :2] - center[:2]) / width
+        pts[:, body, 2] = (pts[:, body, 2] - center[2]) / width
+        pts[:, :42, 2] /= width
+        pts[:, face0:, 2] /= width
+        pts[..., 2] = np.clip(pts[..., 2], -2.0, 2.0)
+        for k in range(pts.shape[1]):
+            for c in range(3):
+                pts[:, k, c] = smooth(pts[:, k, c])
         if len(pts) > MAX_DEMO_FRAMES:
             pts = pts[np.round(np.linspace(0, len(pts) - 1, MAX_DEMO_FRAMES)).astype(int)]
         q = np.where(np.isnan(pts), -32768, np.clip(np.round(pts * 1000), -32767, 32767)).astype('<i2')
@@ -159,10 +205,12 @@ def run_demos():
         offset += q.size
     with open(OUT / 'sign_demos.bin', 'wb') as f:
         for c in chunks: f.write(c)
-    json.dump({'points': len(DEMO_POINTS), 'scale': 1000, 'missing': -32768, 'fps': 30,
-               'layout': {'leftHand': [0, 21], 'rightHand': [21, 42], 'arms': [42, 48],
-                          'faceOval': [48, 84], 'lips': [84, 104], 'eyeL': [104, 120], 'eyeR': [120, 136],
-                          'browL': [136, 146], 'browR': [146, 156]},
+    b = 42
+    json.dump({'points': len(DEMO_POINTS), 'dims': 3, 'scale': 1000, 'missing': -32768, 'fps': 30,
+               'layout': {'leftHand': [0, 21], 'rightHand': [21, 42], 'body': [b, b + 9],
+                          'faceOval': [b + 9, b + 45], 'lips': [b + 45, b + 65], 'eyeL': [b + 65, b + 81], 'eyeR': [b + 81, b + 97],
+                          'browL': [b + 97, b + 107], 'browR': [b + 107, b + 117]},
+               'body': ['nose', 'leftShoulder', 'rightShoulder', 'leftElbow', 'rightElbow', 'leftWrist', 'rightWrist', 'leftHip', 'rightHip'],
                'signs': index}, open(OUT / 'sign_demos.json', 'w'))
     print('sign_demos.bin', round(os.path.getsize(OUT / 'sign_demos.bin') / 1e6, 2), 'MB')
 
@@ -362,7 +410,7 @@ def run_letters():
         idx = np.where(yi == li)[0]
         mean = norm[idx].mean(0)
         best = idx[np.argmin(np.linalg.norm((norm[idx] - mean).reshape(len(idx), -1), axis=1))]
-        shapes[l] = np.round(norm[best][:, :2], 4).tolist()
+        shapes[l] = np.round(norm[best], 4).tolist()
     json.dump(shapes, open(OUT / 'letters_shapes.json', 'w'))
 
     sample = np.random.default_rng(1).choice(va if len(va) else np.arange(len(X)), 20, replace=False)
