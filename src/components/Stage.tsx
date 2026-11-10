@@ -51,11 +51,18 @@ export function Stage({
             <span className="dot" aria-hidden="true" />
             {stateLabel}
           </span>
+          {snap.boosted && <span className="chip chip-boost">{t('lowLightOn')}</span>}
           {settings.showPerformance && (
             <span className="chip chip-perf" title="fps / inference time">
               {Math.round(snap.fps)} {t('fps')} · {snap.inferenceMs.toFixed(1)} {t('ms')}
             </span>
           )}
+        </div>
+      )}
+
+      {snap.status === 'running' && (snap.recovering || snap.hint) && !teach && (
+        <div className="stage-hint" role="status">
+          {snap.recovering ? t('recoveringTracker') : t(`hint_${snap.hint!}`)}
         </div>
       )}
 

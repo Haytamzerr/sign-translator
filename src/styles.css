@@ -222,6 +222,28 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+.chip-boost {
+  margin-inline-start: auto;
+  margin-inline-end: 8px;
+}
+
+.stage-hint {
+  position: absolute;
+  inset-block-end: 16px;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 14.5px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .stage-message {
   position: absolute;
   inset: 0;

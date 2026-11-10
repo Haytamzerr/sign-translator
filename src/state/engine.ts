@@ -10,16 +10,25 @@
  *
  * It runs outside React on purpose: React only receives a small summary about
  * ten times per second, so the interface never slows down the video loop.
+ *
+ * Robustness measures (why tracking keeps working in real conditions):
+ * - short tracking gaps (motion blur) are bridged, see core/continuity.ts
+ * - in a dark room the tracker receives a brightened frame, see core/lighting.ts
+ * - framing advice is shown on screen, see core/framing.ts
+ * - if the graphics card or the camera fails, the engine restarts itself
  */
 
 import type { AslModel } from '../core/asl/model';
 import { compactFrame, type RawFrame } from '../core/asl/features';
 import { SignDecoder, type Commit, type DecoderState } from '../core/decoder';
+import { HandContinuity, type BridgedHand } from '../core/continuity';
 import { extractFrame, hasHands } from '../core/features';
+import { framingHint, HintDebouncer, type FramingHint } from '../core/framing';
+import { boostFilter, FrameBooster, LightMeter, nextBoostState } from '../core/lighting';
 import { Recognizer } from '../core/recognizer';
 import { FrameSmoother } from '../core/smoothing';
 import { HAND_BONES, HandTracker } from '../core/tracker';
-import type { Candidate, Frame, RawHand, Sign } from '../core/types';
+import type { Candidate, Frame, Sign } from '../core/types';
 import type { Settings } from './settings';
 
 export type EngineStatus = 'off' | 'loading' | 'running' | 'error';
@@ -38,6 +47,12 @@ export interface EngineSnapshot {
   candidates: Candidate[];
   handsVisible: boolean;
   pretrained: PretrainedStatus;
+  /** Advice shown on the camera view, if any. */
+  hint: FramingHint | null;
+  /** True while the low-light boost is brightening the tracker's input. */
+  boosted: boolean;
+  /** Set briefly while the engine restarts the tracker after a failure. */
+  recovering: boolean;
 }
 
 /** Colors of the drawn skeleton: right hand and left hand of the signer. */
@@ -48,10 +63,23 @@ const UI_UPDATE_MS = 100;
 const RAW_BUFFER_MS = 6000;
 /** Time added before a movement, so the network sees the start of the sign. */
 const SEGMENT_LEAD_MS = 200;
+/** How often the image brightness is measured. */
+const LIGHT_CHECK_MS = 500;
+/** Consecutive failed frames before the tracker is rebuilt. */
+const MAX_FRAME_ERRORS = 8;
 
 export class SignEngine {
   private tracker = new HandTracker();
   private smoother = new FrameSmoother();
+  private continuity = new HandContinuity();
+  private lightMeter = new LightMeter();
+  private booster = new FrameBooster();
+  private boostActive = false;
+  private lastLightCheck = 0;
+  private hints = new HintDebouncer();
+  private frameErrors = 0;
+  private recovering = false;
+  private lastRecovery = -Infinity;
   private recognizer: Recognizer;
   private decoder: SignDecoder;
   private stream: MediaStream | null = null;
@@ -80,6 +108,9 @@ export class SignEngine {
     candidates: [],
     handsVisible: false,
     pretrained: 'off',
+    hint: null,
+    boosted: false,
+    recovering: false,
   };
 
   private subscribers = new Set<() => void>();
@@ -188,6 +219,13 @@ export class SignEngine {
 
     this.video.srcObject = this.stream;
     await this.video.play().catch(() => undefined);
+    // If the camera disconnects or another app takes it, try to reconnect once.
+    const track = this.stream.getVideoTracks()[0];
+    track?.addEventListener('ended', () => {
+      if (!this.running || this.stream?.getVideoTracks()[0] !== track) return;
+      console.warn('Camera stream ended, reconnecting.');
+      setTimeout(() => void this.start(), 1000);
+    });
 
     try {
       if (!this.tracker.ready) await this.tracker.init(this.settings.delegate, this.settings.numHands);
@@ -199,7 +237,9 @@ export class SignEngine {
     }
 
     this.smoother.reset();
+    this.continuity.reset();
     this.decoder.reset();
+    this.frameErrors = 0;
     this.running = true;
     this.update({ status: 'running' });
     this.scheduleNext();
@@ -244,7 +284,7 @@ export class SignEngine {
     this.running = false;
     this.stopStream();
     this.clearCanvas();
-    this.update({ status: 'off', state: 'idle', candidates: [], handsVisible: false, fps: 0 });
+    this.update({ status: 'off', state: 'idle', candidates: [], handsVisible: false, fps: 0, hint: null, boosted: false });
   }
 
   private stopStream(): void {
@@ -270,21 +310,64 @@ export class SignEngine {
   private tick(): void {
     const video = this.video;
     if (!this.running || !video) return;
-    if (video.readyState >= 2 && video.videoWidth > 0) {
+    if (video.readyState >= 2 && video.videoWidth > 0 && !this.recovering) {
       try {
         this.processFrame(video);
+        this.frameErrors = 0;
       } catch (err) {
         console.error('Frame skipped:', err);
+        if (++this.frameErrors >= MAX_FRAME_ERRORS) void this.recover();
       }
     }
     this.scheduleNext();
   }
 
+  /**
+   * The tracker failed several frames in a row (typically the graphics card
+   * was reset, which happens on laptops after sleep or a driver hiccup).
+   * Rebuild it, on the processor if the graphics card keeps failing.
+   */
+  private async recover(): Promise<void> {
+    if (this.recovering) return;
+    this.recovering = true;
+    this.update({ recovering: true });
+    // A second failure within a minute means the graphics card is not reliable: use the processor.
+    const repeated = performance.now() - this.lastRecovery < 60_000;
+    this.lastRecovery = performance.now();
+    const fallback = repeated ? 'CPU' : this.tracker.delegate;
+    try {
+      this.tracker.close();
+      await this.tracker.init(fallback, this.settings.numHands);
+      if (this.snapshot.pretrained === 'ready') await this.tracker.enablePose(true);
+      this.smoother.reset();
+      this.continuity.reset();
+      this.frameErrors = 0;
+    } catch (err) {
+      console.error('Tracker could not be rebuilt', err);
+      this.frameErrors = 0;
+    } finally {
+      this.recovering = false;
+      this.update({ recovering: false });
+    }
+  }
+
   private processFrame(video: HTMLVideoElement): void {
     const now = performance.now();
+
+    // Light check a few times per second; decide whether to brighten the input.
+    if (now - this.lastLightCheck > LIGHT_CHECK_MS) {
+      this.lastLightCheck = now;
+      const brightness = this.lightMeter.measure(video);
+      const mode = this.settings.lowLightBoost;
+      this.boostActive = mode === 'on' || (mode === 'auto' && nextBoostState(this.boostActive, brightness));
+    }
+    const source = this.boostActive ? (this.booster.apply(video, boostFilter(this.lightMeter.brightness)) ?? video) : video;
+
     const t0 = performance.now();
-    const { hands: raw, pose } = this.tracker.detect(video, now);
+    const detected = this.tracker.detect(source, now);
     const inference = performance.now() - t0;
+    const pose = detected.pose;
+    const raw = this.continuity.apply(detected.hands, now, this.settings.numHands);
 
     const aspect = video.videoWidth / video.videoHeight;
     let frame = extractFrame(raw, aspect, now);
@@ -330,10 +413,24 @@ export class SignEngine {
         motion: output?.motion ?? 0,
         candidates: output?.candidates ?? [],
         handsVisible: hasHands(frame),
+        hint: this.currentHint(raw, pose, aspect, now),
+        boosted: this.boostActive,
       });
     } else {
       this.snapshot = { ...this.snapshot, fps, inferenceMs };
     }
+  }
+
+  private currentHint(hands: BridgedHand[], pose: Parameters<typeof framingHint>[1], aspect: number, now: number) {
+    if (!this.settings.trackingHints) return null;
+    // "Too dark" is only shown when even the boosted image is very dim.
+    const dark = this.lightMeter.brightness >= 0 && this.lightMeter.brightness < 35;
+    const hint = framingHint(
+      hands.filter((h) => !h.bridged),
+      pose,
+      { aspect, dark, needShoulders: this.snapshot.pretrained === 'ready' && hands.length > 0 },
+    );
+    return this.hints.update(hint, now);
   }
 
   /** Runs the pre-trained model on a finished movement and writes the word if sure. */
@@ -377,7 +474,7 @@ export class SignEngine {
     if (ctx && this.canvas) ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  private draw(hands: RawHand[], video: HTMLVideoElement, now: number): void {
+  private draw(hands: BridgedHand[], video: HTMLVideoElement, now: number): void {
     const canvas = this.canvas;
     if (!canvas) return;
     if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
@@ -400,7 +497,8 @@ export class SignEngine {
       ctx.strokeStyle = color;
       ctx.lineCap = 'round';
       ctx.lineWidth = (flash ? 5 : 3) * unit;
-      ctx.globalAlpha = flash ? 1 : 0.85;
+      // A bridged hand (kept from the previous frame) is drawn faded.
+      ctx.globalAlpha = hand.bridged ? 0.35 : flash ? 1 : 0.85;
       ctx.beginPath();
       for (const [a, b] of HAND_BONES) {
         const pa = p[a];
@@ -411,7 +509,7 @@ export class SignEngine {
       }
       ctx.stroke();
 
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = hand.bridged ? 0.35 : 1;
       p.forEach((point, i) => {
         const r = (FINGERTIPS.has(i) ? 5 : 3) * unit;
         ctx.beginPath();

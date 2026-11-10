@@ -59,13 +59,13 @@ When the hands have been down for the chosen pause, the current words become a s
 
 ### Starting the camera
 
-[`src/state/engine.ts`, line 161](../src/state/engine.ts#L161)
+[`src/state/engine.ts`, line 192](../src/state/engine.ts#L192)
 
 Asks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy).
 
 ### One step per camera frame
 
-[`src/state/engine.ts`, line 258](../src/state/engine.ts#L258)
+[`src/state/engine.ts`, line 298](../src/state/engine.ts#L298)
 
 requestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.
 
@@ -73,7 +73,7 @@ requestVideoFrameCallback fires exactly once per NEW camera frame. Using it inst
 
 ### The whole pipeline for one frame
 
-[`src/state/engine.ts`, line 283](../src/state/engine.ts#L283)
+[`src/state/engine.ts`, line 354](../src/state/engine.ts#L354)
 
 Read top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.
 
@@ -83,7 +83,7 @@ Read top to bottom: detect hands (and body) -> build normalized features -> smoo
 
 ### Loading the hand tracker
 
-[`src/core/tracker.ts`, line 58](../src/core/tracker.ts#L58)
+[`src/core/tracker.ts`, line 60](../src/core/tracker.ts#L60)
 
 Loads MediaPipe Hand Landmarker (palm detector + landmark model) on the GPU. If the GPU is not available, it falls back to the CPU. Files load from the app itself first (offline), then from the internet.
 
@@ -91,15 +91,43 @@ Loads MediaPipe Hand Landmarker (palm detector + landmark model) on the GPU. If 
 
 ### Detecting hands in a frame
 
-[`src/core/tracker.ts`, line 118](../src/core/tracker.ts#L118)
+[`src/core/tracker.ts`, line 126](../src/core/tracker.ts#L126)
 
 Returns 21 points (x, y, z) per hand plus which hand it is (left/right). Timestamps must strictly increase because MediaPipe tracks hands between frames.
 
 ### Body tracking
 
-[`src/core/tracker.ts`, line 90](../src/core/tracker.ts#L90)
+[`src/core/tracker.ts`, line 95](../src/core/tracker.ts#L95)
 
 Pose Landmarker gives 33 body points. Only enabled for the built-in ASL model, which needs to know where the hands are relative to the face and shoulders.
+
+### Low-light boost
+
+[`src/core/lighting.ts`, line 28](../src/core/lighting.ts#L28)
+
+In a dark room the tracker receives a brightened copy of the frame (brightness gain up to 2.4x plus a little contrast). Brightness is measured twice per second on a 32x24 thumbnail, and the boost switches on below 75/255 and off above 95/255.
+
+> **In class:** Image enhancement before detection: a classic preprocessing step. The two thresholds are hysteresis again.
+
+### Bridging tracking gaps
+
+[`src/core/continuity.ts`, line 27](../src/core/continuity.ts#L27)
+
+A hand lost for up to 150 ms (about 4 frames, typically motion blur) is kept at its last position, drawn faded. A hand that reappears under the other left/right label is not duplicated.
+
+> **In class:** Temporal coherence: objects do not vanish between two frames, so short detection failures are filled in from the past.
+
+### Self-repair
+
+[`src/state/engine.ts`, line 330](../src/state/engine.ts#L330)
+
+If 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor.
+
+### Framing advice
+
+[`src/core/framing.ts`, line 21](../src/core/framing.ts#L21)
+
+Checks the landmarks already found: hand touching the border, hand too small (far) or too large (close), shoulders missing for the ASL model. A hint appears only after 0.7 s, so it does not flicker.
 
 ## 4. Representation: from points to features
 
@@ -285,7 +313,7 @@ The sign and its mirror image are both scored and averaged, so left- and right-h
 
 ### Connecting the network to the live stream
 
-[`src/state/engine.ts`, line 340](../src/state/engine.ts#L340)
+[`src/state/engine.ts`, line 437](../src/state/engine.ts#L437)
 
 When the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold.
 

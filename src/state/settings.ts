@@ -20,6 +20,10 @@ export interface Settings {
   holdMs: number;
   moveThreshold: number;
   smoothing: boolean;
+  /** Brighten the image given to the hand tracker in a dark room. */
+  lowLightBoost: 'auto' | 'on' | 'off';
+  /** Show advice on the camera view (too dark, hand at the edge...). */
+  trackingHints: boolean;
   eitherHand: boolean;
   /** Use the pre-trained ASL model (when the sign language is ASL). */
   pretrained: boolean;
@@ -54,6 +58,8 @@ export function defaultSettings(): Settings {
     holdMs: 400,
     moveThreshold: 1.5,
     smoothing: true,
+    lowLightBoost: 'auto',
+    trackingHints: true,
     eitherHand: true,
     pretrained: true,
     pretrainedConfidence: 0.5,
