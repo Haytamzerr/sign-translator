@@ -17,19 +17,19 @@
     },
     {
       "file": "src/App.tsx",
-      "line": 46,
+      "line": 53,
       "title": "App: the owner of shared state",
       "description": "**1. Entry point and app state**\n\nApp holds the settings, the sign library, the caption words and the transcript, and passes them to the panels. It creates ONE SignEngine, which does all the real-time work outside React.\n\n**In class:** Separation of concerns: the interface (React) never runs the vision code itself. That keeps the video loop fast."
     },
     {
       "file": "src/App.tsx",
-      "line": 136,
+      "line": 143,
       "title": "Receiving recognized words",
       "description": "**1. Entry point and app state**\n\nEvery time the engine decides a sign was made (\"commit\"), this callback appends the word to the caption."
     },
     {
       "file": "src/App.tsx",
-      "line": 158,
+      "line": 165,
       "title": "Ending a sentence",
       "description": "**1. Entry point and app state**\n\nWhen the hands have been down for the chosen pause, the current words become a sentence: shown above the caption, added to the transcript, and read aloud if enabled."
     },
@@ -257,7 +257,7 @@
     },
     {
       "file": "src/core/letters.ts",
-      "line": 122,
+      "line": 123,
       "title": "From frames to letters",
       "description": "**8. Fingerspelling**\n\nA letter is written when the same confident guess is held for 350 ms. It can be written again only after the hand moves or changes: that is how double letters (LL in HELLO) are spelled."
     },
@@ -269,15 +269,27 @@
     },
     {
       "file": "src/core/learn/demos.ts",
-      "line": 69,
+      "line": 123,
       "title": "Recorded demonstrations",
-      "description": "**9. Learn and Phrase to signs**\n\nEach of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 156 points per frame in 16-bit integers: about 3 MB for all signs."
+      "description": "**9. Learn and Phrase to signs**\n\nEach of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 159 points per frame (x, y and depth) in 16-bit integers."
+    },
+    {
+      "file": "src/core/learn/figure.ts",
+      "line": 72,
+      "title": "A body with fixed bone lengths",
+      "description": "**9. Learn and Phrase to signs**\n\nThe camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).\n\n**In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera)."
+    },
+    {
+      "file": "src/components/mannequin.ts",
+      "line": 269,
+      "title": "Drawing the 3D figure",
+      "description": "**9. Learn and Phrase to signs**\n\nThe figure is made of simple solids: a turned torso, an egg-shaped head with the face lines placed on its surface, cylinders and spheres for the limbs. All cylinders and spheres of a frame are drawn in one call each (instancing).\n\n**In class:** Instanced rendering: the same shape drawn many times with a different position each time, in one draw call."
     },
     {
       "file": "src/components/SignPlayer.tsx",
-      "line": 74,
+      "line": 36,
       "title": "Animation timeline",
-      "description": "**9. Learn and Phrase to signs**\n\nSigns become key poses 33 ms apart; letters become a raised hand held for half a second. Points are interpolated between key poses, with easing for transitions.\n\n**In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games."
+      "description": "**9. Learn and Phrase to signs**\n\nSigns become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.\n\n**In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games."
     },
     {
       "file": "src/state/progress.ts",

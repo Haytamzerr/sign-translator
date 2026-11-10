@@ -7,12 +7,10 @@
  * App owns the shared state and passes it down.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CaptionBar, type CaptionWord } from './components/CaptionBar';
 import { IconCamera, IconCameraOff } from './components/icons';
-import { LearnView } from './components/LearnView';
 import { LibraryPanel } from './components/LibraryPanel';
-import { PhraseView } from './components/PhraseView';
 import { LivePanel, type TranscriptLine } from './components/LivePanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Stage, type TeachOverlay } from './components/Stage';
@@ -24,6 +22,15 @@ import { prepareTake } from './core/teach';
 import type { Sign } from './core/types';
 import { SIGN_LANGUAGES, speechLang, translator, type StringKey } from './i18n/strings';
 import { SignEngine } from './state/engine';
+
+// The Learn and Phrase views include the 3D figure (three.js); they load on first use.
+const LearnView = lazy(() => import('./components/LearnView').then((m) => ({ default: m.LearnView })));
+const PhraseView = lazy(() => import('./components/PhraseView').then((m) => ({ default: m.PhraseView })));
+const viewLoading = (
+  <div className="view-message">
+    <div className="spinner" aria-hidden="true" />
+  </div>
+);
 import { loadSettings, saveSettings, type Settings } from './state/settings';
 
 type View = 'translate' | 'learn' | 'phrase';
@@ -237,12 +244,16 @@ export default function App() {
 
       {view === 'learn' && (
         <main className="workspace workspace-full">
-          <LearnView engine={engine} snap={snap} settings={settings} t={t} />
+          <Suspense fallback={viewLoading}>
+            <LearnView engine={engine} snap={snap} settings={settings} t={t} />
+          </Suspense>
         </main>
       )}
       {view === 'phrase' && (
         <main className="workspace workspace-full">
-          <PhraseView settings={settings} t={t} />
+          <Suspense fallback={viewLoading}>
+            <PhraseView settings={settings} t={t} />
+          </Suspense>
         </main>
       )}
 

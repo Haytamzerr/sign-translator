@@ -1,14 +1,14 @@
 /** Loads the sign demonstrations and letter handshapes once, for Learn and Phrase views. */
 
 import { useEffect, useState } from 'react';
-import { loadDemos, type DemoLibrary } from '../core/learn/demos';
+import { loadDemos, type DemoLibrary, type HandShape } from '../core/learn/demos';
 import { loadLetterShapes } from '../core/letters';
 import type { Clip } from './SignPlayer';
 
 export interface LearningData {
   status: 'loading' | 'ready' | 'missing';
   demos: DemoLibrary | null;
-  shapes: Record<string, [number, number][]> | null;
+  shapes: Record<string, HandShape> | null;
 }
 
 let shared: Promise<LearningData> | null = null;

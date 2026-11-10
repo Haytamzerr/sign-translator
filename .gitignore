@@ -5,3 +5,4 @@ public/mediapipe
 public/models/*.task
 public/ort
 .DS_Store
+__pycache__/

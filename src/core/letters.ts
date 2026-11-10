@@ -85,10 +85,11 @@ export async function loadLetterModel(): Promise<LetterModel | null> {
 }
 
 /** Reference handshapes (21 points x, y, wrist at origin, hand size 1) per letter. */
-export async function loadLetterShapes(): Promise<Record<string, [number, number][]> | null> {
+/** Reference handshape of each letter: 21 points (x, y, z), wrist at the origin, hand size 1. */
+export async function loadLetterShapes(): Promise<Record<string, number[][]> | null> {
   try {
     const res = await fetch(`${base}models/letters/letters_shapes.json`);
-    return res.ok ? ((await res.json()) as Record<string, [number, number][]>) : null;
+    return res.ok ? ((await res.json()) as Record<string, number[][]>) : null;
   } catch {
     return null;
   }

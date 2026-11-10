@@ -37,7 +37,7 @@ The browser loads index.html, which runs this file. It mounts the React componen
 
 ### App: the owner of shared state
 
-[`src/App.tsx`, line 46](../src/App.tsx#L46)
+[`src/App.tsx`, line 53](../src/App.tsx#L53)
 
 App holds the settings, the sign library, the caption words and the transcript, and passes them to the panels. It creates ONE SignEngine, which does all the real-time work outside React.
 
@@ -45,13 +45,13 @@ App holds the settings, the sign library, the caption words and the transcript, 
 
 ### Receiving recognized words
 
-[`src/App.tsx`, line 136](../src/App.tsx#L136)
+[`src/App.tsx`, line 143](../src/App.tsx#L143)
 
 Every time the engine decides a sign was made ("commit"), this callback appends the word to the caption.
 
 ### Ending a sentence
 
-[`src/App.tsx`, line 158](../src/App.tsx#L158)
+[`src/App.tsx`, line 165](../src/App.tsx#L165)
 
 When the hands have been down for the chosen pause, the current words become a sentence: shown above the caption, added to the transcript, and read aloud if enabled.
 
@@ -329,7 +329,7 @@ Three dense layers (63 -> 128 -> 64 -> 26) with ReLU, then softmax. The input is
 
 ### From frames to letters
 
-[`src/core/letters.ts`, line 122](../src/core/letters.ts#L122)
+[`src/core/letters.ts`, line 123](../src/core/letters.ts#L123)
 
 A letter is written when the same confident guess is held for 350 ms. It can be written again only after the hand moves or changes: that is how double letters (LL in HELLO) are spelled.
 
@@ -343,15 +343,31 @@ Only the largest really detected hand, held still and raised (wrist in the upper
 
 ### Recorded demonstrations
 
-[`src/core/learn/demos.ts`, line 69](../src/core/learn/demos.ts#L69)
+[`src/core/learn/demos.ts`, line 123](../src/core/learn/demos.ts#L123)
 
-Each of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 156 points per frame in 16-bit integers: about 3 MB for all signs.
+Each of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 159 points per frame (x, y and depth) in 16-bit integers.
+
+### A body with fixed bone lengths
+
+[`src/core/learn/figure.ts`, line 72](../src/core/learn/figure.ts#L72)
+
+The camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).
+
+> **In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera).
+
+### Drawing the 3D figure
+
+[`src/components/mannequin.ts`, line 269](../src/components/mannequin.ts#L269)
+
+The figure is made of simple solids: a turned torso, an egg-shaped head with the face lines placed on its surface, cylinders and spheres for the limbs. All cylinders and spheres of a frame are drawn in one call each (instancing).
+
+> **In class:** Instanced rendering: the same shape drawn many times with a different position each time, in one draw call.
 
 ### Animation timeline
 
-[`src/components/SignPlayer.tsx`, line 74](../src/components/SignPlayer.tsx#L74)
+[`src/components/SignPlayer.tsx`, line 36](../src/components/SignPlayer.tsx#L36)
 
-Signs become key poses 33 ms apart; letters become a raised hand held for half a second. Points are interpolated between key poses, with easing for transitions.
+Signs become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.
 
 > **In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games.
 

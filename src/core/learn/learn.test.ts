@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { LetterDecoder, LetterModel, type LetterModelData } from '../letters';
 import { TOPICS } from './categories';
-import { decodeDemos, neutralPose, DEMO_POINTS } from './demos';
+import { decodeDemos, neutralPose, setPoint, DEMO_POINTS, type DemoLayout, type Rig } from './demos';
+import { placeBone, prepareFrames, solveFigure, type Vec3 } from './figure';
 import { phraseToItems } from './phrase';
 
 const LABELS = 'public/models/asl/asl_labels.json';
@@ -91,25 +92,69 @@ describe.skipIf(!existsSync(LETTER_MODEL) || !existsSync(LETTER_PARITY))('letter
   });
 });
 
+const LAYOUT = {
+  leftHand: [0, 21], rightHand: [21, 42], body: [42, 51], faceOval: [51, 87], lips: [87, 107],
+  eyeL: [107, 123], eyeR: [123, 139], browL: [139, 149], browR: [149, 159],
+} as DemoLayout;
+
 describe('demo decoding', () => {
-  it('reads points and missing values', () => {
-    const perFrame = DEMO_POINTS * 2;
+  it('reads 3D points and missing values', () => {
+    const perFrame = DEMO_POINTS * 3;
     const data = new Int16Array(perFrame * 2).fill(500);
     data[0] = -32768;
-    const layout = {
-      leftHand: [0, 21], rightHand: [21, 42], arms: [42, 48], faceOval: [48, 84], lips: [84, 104],
-      eyeL: [104, 120], eyeR: [120, 136], browL: [136, 146], browR: [146, 156],
-    } as const;
     const demos = decodeDemos(
-      { points: DEMO_POINTS, scale: 1000, missing: -32768, fps: 30, layout: layout as never, signs: [{ label: 'hello', offset: 0, frames: 2, confidence: 1 }] },
+      { points: DEMO_POINTS, dims: 3, scale: 1000, missing: -32768, fps: 30, layout: LAYOUT, signs: [{ label: 'hello', offset: 0, frames: 2, confidence: 1 }] },
       data,
     );
     const frames = demos.get('hello')!.frames;
     expect(frames).toHaveLength(2);
+    expect(frames[0]).toHaveLength(perFrame);
     expect(Number.isNaN(frames[0]![0]!)).toBe(true);
-    expect(frames[0]![1]).toBeCloseTo(0.5);
-    const neutral = neutralPose(demos.values(), layout as never);
+    expect(frames[0]![2]).toBeCloseTo(0.5); // z of the first point
+    const neutral = neutralPose(demos.values(), LAYOUT);
     expect(Number.isNaN(neutral[0]!)).toBe(true); // hands hidden in the neutral pose
-    expect(neutral[48 * 2]).toBeCloseTo(0.5); // face kept
+    expect(neutral[60 * 3]).toBeCloseTo(0.5); // face kept
+  });
+});
+
+describe('3D figure', () => {
+  const rig: Rig = { upperArm: 0.8, forearm: 0.75, hand: 0.3, faceWidth: 0.5, faceHeight: 0.65, eyeSide: 1 };
+  const len = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+
+  it('keeps bone lengths fixed, whatever the recording says', () => {
+    for (const seen of [[0.1, 0.2, 0], [2, 2, 0], [0.3, 0.3, -0.5], [0.05, 0.05, 0.3]] as Vec3[]) {
+      const end = placeBone([0, 0, 0], seen, 0.8);
+      expect(len([0, 0, 0], end)).toBeCloseTo(0.8, 5);
+    }
+  });
+
+  it('keeps what the picture shows and only solves depth', () => {
+    const end = placeBone([0, 0, 0], [0.3, -0.4, 0], 1);
+    expect(end[0]).toBeCloseTo(0.3);
+    expect(end[1]).toBeCloseTo(-0.4);
+    expect(end[2]).toBeGreaterThan(0); // towards the viewer by default
+    expect(placeBone([0, 0, 0], [0.3, -0.4, -0.9], 1)[2]).toBeLessThan(0); // clearly behind
+  });
+
+  it('attaches the hand to the end of the forearm', () => {
+    const pose = new Float32Array(DEMO_POINTS * 3).fill(NaN);
+    const b = LAYOUT.body[0];
+    setPoint(pose, b + 1, [0.5, 0, 0]);
+    setPoint(pose, b + 2, [-0.5, 0, 0]);
+    setPoint(pose, b + 4, [-0.7, 0.6, -0.2]);
+    for (let i = 0; i < 21; i++) setPoint(pose, 21 + i, [-0.6 + i * 0.01, 0.2 - i * 0.02, -0.5]);
+    const fig = solveFigure(pose, LAYOUT, rig);
+    expect(len(fig.right.shoulder, fig.right.elbow)).toBeCloseTo(rig.upperArm, 4);
+    expect(len(fig.right.elbow, fig.right.wrist)).toBeCloseTo(rig.forearm, 4);
+    expect(fig.right.hand![0]).toEqual(fig.right.wrist);
+    expect(fig.left.hand).toBeNull(); // not tracked: a closed hand is drawn
+    expect(len(fig.left.elbow, fig.left.wrist)).toBeCloseTo(rig.forearm, 4);
+  });
+
+  it('gives every recording the same hand size', () => {
+    const frame = new Float32Array(DEMO_POINTS * 3).fill(NaN);
+    for (let i = 0; i < 21; i++) setPoint(frame, i, [i * 0.05, 0, 0]); // knuckle 9 at 0.45 from the wrist
+    const [out] = prepareFrames([frame], LAYOUT, rig);
+    expect(Math.hypot(out![27]!, out![28]!, out![29]!)).toBeCloseTo(rig.hand, 4);
   });
 });
