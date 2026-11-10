@@ -12,6 +12,17 @@ Everything runs on your own computer. No video is uploaded anywhere.
 - Built-in ASL vocabulary: a neural network trained on about 94,000 recordings
   recognizes 250 everyday ASL signs without any teaching, shown in English,
   French or Arabic
+- Fingerspelling: the 26 letters of the ASL alphabet are recognized, so names
+  and other words can be spelled; the letters build up a word in the caption
+- Learn: 14 lessons (13 topics and the alphabet) with an animated
+  demonstration of every sign from a real signer's recording, live practice
+  with the camera scored with 1 to 3 stars, saved progress, and a quiz mode
+- Phrase to signs: type a sentence in English, French or Arabic and watch it
+  signed; names and unknown words are fingerspelled, and words ASL leaves out
+  ("the", "is") are marked as such
+- Robust tracking: short tracking losses are bridged, a low-light boost helps
+  in dark rooms, on-screen advice explains framing problems, and the tracker
+  restarts itself after a graphics or camera failure
 - Live hand tracking (21 points per hand, two hands) with a skeleton overlay
 - Two kinds of signs, detected automatically:
   - **Still signs**: a held handshape (for example most fingerspelled letters)
@@ -92,6 +103,11 @@ src/
     storage.ts          sign library in IndexedDB, export and import
     speech.ts           text-to-speech
     asl/                built-in ASL model: input preparation, inference, labels
+    learn/              lesson topics, sign demonstrations, phrase to signs
+    letters.ts          fingerspelling recognizer and letter decoder
+    continuity.ts       bridging short tracking gaps
+    lighting.ts         light measurement and low-light boost
+    framing.ts          framing advice
     core.test.ts        unit tests
   state/
     engine.ts           real-time loop: camera to words
@@ -103,6 +119,10 @@ src/
 ## Training the built-in ASL model
 
 The model in `public/models/asl/` is produced by `training/train_asl.ipynb`.
+The sign demonstrations and the alphabet recognizer (`public/models/learn/`
+and `public/models/letters/`) are produced by `training/prepare_learning_data.py`,
+which picks the clearest recording of each sign and trains the letter
+classifier.
 To retrain it, open the notebook on Kaggle, add the
 [Isolated Sign Language Recognition](https://www.kaggle.com/competitions/asl-signs)
 competition data, and run it (a GPU makes it much faster). It writes
@@ -118,6 +138,10 @@ for the Deaf and the Rochester Institute of Technology through the Kaggle
 competition "Google - Isolated Sign Language Recognition", under the
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. Hand and body
 tracking use [MediaPipe](https://ai.google.dev/edge/mediapipe) by Google.
+The sign demonstrations are recordings from the same PopSign ASL dataset.
+The fingerspelling recognizer is trained on the
+[ASLNow! fingerspelling dataset](https://huggingface.co/datasets/sid220/asl-now-fingerspelling)
+(MIT license). "Watch a video" links open [SignASL.org](https://www.signasl.org).
 
 ## Privacy
 

@@ -25,6 +25,7 @@ import { HandContinuity, type BridgedHand } from '../core/continuity';
 import { extractFrame, hasHands } from '../core/features';
 import { framingHint, HintDebouncer, type FramingHint } from '../core/framing';
 import { boostFilter, FrameBooster, LightMeter, nextBoostState } from '../core/lighting';
+import { LetterDecoder, loadLetterModel, type LetterGuess, type LetterModel } from '../core/letters';
 import { Recognizer } from '../core/recognizer';
 import { FrameSmoother } from '../core/smoothing';
 import { HAND_BONES, HandTracker } from '../core/tracker';
@@ -35,6 +36,18 @@ export type EngineStatus = 'off' | 'loading' | 'running' | 'error';
 export type EngineError = 'denied' | 'missing' | 'busy' | 'model' | null;
 /** State of the pre-trained ASL model. */
 export type PretrainedStatus = 'off' | 'loading' | 'ready' | 'missing';
+/**
+ * translate: recognized signs are written as captions.
+ * practice:  nothing is written; the Learn view receives every guess instead.
+ */
+export type EngineMode = 'translate' | 'practice';
+
+/** What the built-in model thought of one finished movement (for practice). */
+export interface SegmentResult {
+  /** Model labels (English, untranslated), best first, with probabilities. */
+  guesses: { label: string; confidence: number }[];
+  t: number;
+}
 
 export interface EngineSnapshot {
   status: EngineStatus;
@@ -53,6 +66,8 @@ export interface EngineSnapshot {
   boosted: boolean;
   /** Set briefly while the engine restarts the tracker after a failure. */
   recovering: boolean;
+  /** Current fingerspelling guess for the visible hand, if any. */
+  letter: LetterGuess | null;
 }
 
 /** Colors of the drawn skeleton: right hand and left hand of the signer. */
@@ -67,6 +82,8 @@ const SEGMENT_LEAD_MS = 200;
 const LIGHT_CHECK_MS = 500;
 /** Consecutive failed frames before the tracker is rebuilt. */
 const MAX_FRAME_ERRORS = 8;
+/** After a spelled letter, movements are not read as whole signs for this long. */
+const SPELLING_GUARD_MS = 1500;
 
 export class SignEngine {
   private tracker = new HandTracker();
@@ -80,6 +97,15 @@ export class SignEngine {
   private frameErrors = 0;
   private recovering = false;
   private lastRecovery = -Infinity;
+  private mode: EngineMode = 'translate';
+  /** Increases when the camera view moves to another screen, to stop the old loop. */
+  private loopToken = 0;
+  private letters: LetterModel | null = null;
+  private lettersLoad: Promise<LetterModel | null> | null = null;
+  private letterDecoder = new LetterDecoder();
+  private lastLetterAt = -Infinity;
+  private letterListeners = new Set<(letter: string, t: number) => void>();
+  private segmentListeners = new Set<(result: SegmentResult) => void>();
   private recognizer: Recognizer;
   private decoder: SignDecoder;
   private stream: MediaStream | null = null;
@@ -111,6 +137,7 @@ export class SignEngine {
     hint: null,
     boosted: false,
     recovering: false,
+    letter: null,
   };
 
   private subscribers = new Set<() => void>();
@@ -150,9 +177,54 @@ export class SignEngine {
 
   // ---------- Configuration ----------
 
+  /** Receives every fingerspelled letter. */
+  onLetter(callback: (letter: string, t: number) => void): () => void {
+    this.letterListeners.add(callback);
+    return () => this.letterListeners.delete(callback);
+  }
+
+  /** Receives the built-in model's opinion of every finished movement. */
+  onSegment(callback: (result: SegmentResult) => void): () => void {
+    this.segmentListeners.add(callback);
+    return () => this.segmentListeners.delete(callback);
+  }
+
+  /**
+   * Connects the engine to a camera view. The Translate and Learn screens each
+   * have their own; when the view changes while the camera is on, the stream
+   * moves to the new video element and the loop restarts on it.
+   */
   attach(video: HTMLVideoElement, canvas: HTMLCanvasElement): void {
+    if (this.video === video && this.canvas === canvas) return;
     this.video = video;
     this.canvas = canvas;
+    if (this.running && this.stream) {
+      video.srcObject = this.stream;
+      void video.play().catch(() => undefined);
+      this.loopToken++;
+      this.scheduleNext();
+    }
+  }
+
+  setMode(mode: EngineMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.decoder.reset();
+    this.letterDecoder.reset();
+    void this.syncPretrained();
+    void this.syncLetters();
+  }
+
+  /** Loads the letter recognizer when fingerspelling is wanted. */
+  private async syncLetters(): Promise<void> {
+    if (this.settings.fingerspelling === 'off' && this.mode === 'translate') return;
+    this.lettersLoad ??= loadLetterModel();
+    this.letters = await this.lettersLoad;
+    if (!this.letters) this.lettersLoad = null;
+  }
+
+  get letterLabels(): string[] {
+    return this.letters?.labels ?? [];
   }
 
   setLibrary(signs: Sign[]): void {
@@ -176,6 +248,7 @@ export class SignEngine {
     if (previous.signLanguage !== settings.signLanguage || previous.pretrained !== settings.pretrained) {
       void this.syncPretrained();
     }
+    if (previous.fingerspelling !== settings.fingerspelling) void this.syncLetters();
     const restart =
       previous.cameraId !== settings.cameraId ||
       previous.resolution !== settings.resolution ||
@@ -242,13 +315,16 @@ export class SignEngine {
     this.frameErrors = 0;
     this.running = true;
     this.update({ status: 'running' });
+    this.loopToken++;
     this.scheduleNext();
     void this.syncPretrained();
+    void this.syncLetters();
   }
 
   /** Turns the pre-trained ASL model (and body tracking) on or off. */
   private async syncPretrained(): Promise<void> {
-    const wanted = this.settings.pretrained && this.settings.signLanguage === 'asl';
+    // Practice always uses the built-in vocabulary: the lessons teach ASL.
+    const wanted = (this.settings.pretrained && this.settings.signLanguage === 'asl') || this.mode === 'practice';
     if (!wanted) {
       await this.tracker.enablePose(false);
       this.update({ pretrained: 'off' });
@@ -284,7 +360,7 @@ export class SignEngine {
     this.running = false;
     this.stopStream();
     this.clearCanvas();
-    this.update({ status: 'off', state: 'idle', candidates: [], handsVisible: false, fps: 0, hint: null, boosted: false });
+    this.update({ status: 'off', state: 'idle', candidates: [], handsVisible: false, fps: 0, hint: null, boosted: false, letter: null });
   }
 
   private stopStream(): void {
@@ -300,16 +376,17 @@ export class SignEngine {
     if (!this.running || !video) return;
     // requestVideoFrameCallback fires exactly once per new camera frame,
     // so no frame is processed twice and none is waited for needlessly.
+    const token = this.loopToken;
     if ('requestVideoFrameCallback' in video) {
-      video.requestVideoFrameCallback(() => this.tick());
+      video.requestVideoFrameCallback(() => this.tick(token));
     } else {
-      requestAnimationFrame(() => this.tick());
+      requestAnimationFrame(() => this.tick(token));
     }
   }
 
-  private tick(): void {
+  private tick(token: number): void {
     const video = this.video;
-    if (!this.running || !video) return;
+    if (!this.running || !video || token !== this.loopToken) return;
     if (video.readyState >= 2 && video.videoWidth > 0 && !this.recovering) {
       try {
         this.processFrame(video);
@@ -387,13 +464,16 @@ export class SignEngine {
     for (const listener of this.frameListeners) listener(frame);
 
     let output = null;
+    let letter: LetterGuess | null = null;
     if (!this.paused) {
       output = this.decoder.push(frame);
-      if (output.commit) {
+      const practice = this.mode === 'practice';
+      if (output.commit && !practice && now - this.lastLetterAt > SPELLING_GUARD_MS) {
         this.flashUntil = now + 300;
         for (const listener of this.commitListeners) listener(output.commit);
       }
-      if (aslOn && output.segment && !output.segment.committed) void this.classifySegment(output.segment);
+      if (aslOn && output.segment && (practice || !output.segment.committed)) void this.classifySegment(output.segment);
+      letter = this.readLetter(raw, aspect, now, output.state === 'moving');
     }
 
     this.draw(raw, video, now);
@@ -415,10 +495,45 @@ export class SignEngine {
         handsVisible: hasHands(frame),
         hint: this.currentHint(raw, pose, aspect, now),
         boosted: this.boostActive,
+        letter,
       });
     } else {
       this.snapshot = { ...this.snapshot, fps, inferenceMs };
     }
+  }
+
+  /**
+   * Fingerspelling: classify the main hand's shape while it is still, and
+   * write a letter when it has been held long enough.
+   */
+  private readLetter(hands: BridgedHand[], aspect: number, now: number, moving: boolean): LetterGuess | null {
+    const model = this.letters;
+    const enabled = this.mode === 'practice' || this.settings.fingerspelling !== 'off';
+    if (!model || !enabled) return null;
+    // The main hand: the largest one that was really detected in this frame.
+    let main: BridgedHand | null = null;
+    let biggest = 0;
+    for (const h of hands) {
+      if (h.bridged) continue;
+      const p = h.landmarks;
+      const size = Math.hypot((p[9]!.x - p[0]!.x) * aspect, p[9]!.y - p[0]!.y);
+      if (size > biggest) {
+        biggest = size;
+        main = h;
+      }
+    }
+    // Spelling happens with the hand raised; a hand resting low is ignored.
+    if (!main || main.landmarks[0]!.y > 0.85) {
+      this.letterDecoder.push(now, null, moving);
+      return null;
+    }
+    const guess = model.classify(main.landmarks, aspect, 1)[0] ?? null;
+    const written = this.letterDecoder.push(now, guess, moving);
+    if (written) {
+      this.lastLetterAt = now;
+      for (const listener of this.letterListeners) listener(written, now);
+    }
+    return guess;
   }
 
   private currentHint(hands: BridgedHand[], pose: Parameters<typeof framingHint>[1], aspect: number, now: number) {
@@ -438,7 +553,10 @@ export class SignEngine {
     const part = this.rawBuffer.filter((r) => r.t >= segment.start - SEGMENT_LEAD_MS && r.t <= segment.end);
     if (part.length < 6 || !this.asl) return;
     try {
-      const guesses = await this.asl.classify(part.map((p) => p.raw));
+      const guesses = await this.asl.classify(part.map((p) => p.raw), 5);
+      const result: SegmentResult = { guesses: guesses.map((g) => ({ label: g.label, confidence: g.confidence })), t: segment.end };
+      for (const listener of this.segmentListeners) listener(result);
+      if (this.mode === 'practice') return;
       const threshold = this.settings.pretrainedConfidence;
       const candidates: Candidate[] = guesses.map((g) => ({
         signId: `asl:${g.index}`,
@@ -451,6 +569,8 @@ export class SignEngine {
       this.update({ candidates });
       const best = candidates[0];
       if (!best || best.confidence < threshold || !this.running || this.paused) return;
+      // Movements between spelled letters are not whole signs.
+      if (performance.now() - this.lastLetterAt < SPELLING_GUARD_MS) return;
       const commit: Commit = {
         signId: best.signId,
         label: best.label,
