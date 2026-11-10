@@ -14,9 +14,10 @@ Everything runs on your own computer. No video is uploaded anywhere.
   French or Arabic
 - Fingerspelling: the 26 letters of the ASL alphabet are recognized, so names
   and other words can be spelled; the letters build up a word in the caption
-- Learn: 14 lessons (13 topics and the alphabet) with an animated
-  demonstration of every sign from a real signer's recording, live practice
-  with the camera scored with 1 to 3 stars, saved progress, and a quiz mode
+- Learn: 14 lessons (13 topics and the alphabet) where a 3D figure performs
+  every sign from a real signer's recording (drag to see it from the side),
+  live practice with the camera scored with 1 to 3 stars, saved progress, and
+  a quiz mode
 - Phrase to signs: type a sentence in English, French or Arabic and watch it
   signed; names and unknown words are fingerspelled, and words ASL leaves out
   ("the", "is") are marked as such
@@ -103,7 +104,7 @@ src/
     storage.ts          sign library in IndexedDB, export and import
     speech.ts           text-to-speech
     asl/                built-in ASL model: input preparation, inference, labels
-    learn/              lesson topics, sign demonstrations, phrase to signs
+    learn/              lesson topics, sign demonstrations, 3D figure, phrase to signs
     letters.ts          fingerspelling recognizer and letter decoder
     continuity.ts       bridging short tracking gaps
     lighting.ts         light measurement and low-light boost
@@ -137,7 +138,8 @@ Google, the Georgia Institute of Technology, the National Technical Institute
 for the Deaf and the Rochester Institute of Technology through the Kaggle
 competition "Google - Isolated Sign Language Recognition", under the
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. Hand and body
-tracking use [MediaPipe](https://ai.google.dev/edge/mediapipe) by Google.
+tracking use [MediaPipe](https://ai.google.dev/edge/mediapipe) by Google. The 3D figure is drawn
+with [three.js](https://threejs.org) (MIT license).
 The sign demonstrations are recordings from the same PopSign ASL dataset.
 The fingerspelling recognizer is trained on the
 [ASLNow! fingerspelling dataset](https://huggingface.co/datasets/sid220/asl-now-fingerspelling)

@@ -121,6 +121,9 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
                 clips={clips}
                 neutral={data.demos.neutral}
                 layout={data.demos.layout}
+                rig={data.demos.rig}
+                resetLabel={t('playerFront')}
+                failedLabel={t('player3dMissing')}
                 speed={speed}
                 mirror={mirror}
                 loop={loop}

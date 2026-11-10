@@ -122,6 +122,15 @@ export const IconReplay = (p: IconProps) => (
     <path d="M4 4v4h4" />
   </Svg>
 );
+/** A person seen from the front, with a turning arrow: "face the front again". */
+export const IconFront = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="7.5" r="2.5" />
+    <path d="M8.5 15.5c0-2 1.6-3.5 3.5-3.5s3.5 1.5 3.5 3.5" />
+    <path d="M4.5 17.5c1.8 1.6 4.5 2.5 7.5 2.5s5.7-.9 7.5-2.5" />
+    <path d="M17 16.3l2.5 1.2-.9 2.6" />
+  </Svg>
+);
 export const IconNext = (p: IconProps) => (
   <Svg {...p}>
     <path d="M9 6l6 6-6 6" />
