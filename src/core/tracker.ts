@@ -52,6 +52,8 @@ export class HandTracker {
   private poseLandmarker: PoseLandmarker | null = null;
   private fileset: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>> | null = null;
   private lastTimestamp = 0;
+  private frameIndex = 0;
+  private lastPose: Point3[] | null = null;
   delegate: Delegate = 'GPU';
 
   /** Loads the hand model. Falls back to the CPU if the GPU cannot be used. */
@@ -66,8 +68,11 @@ export class HandTracker {
         baseOptions: { modelAssetPath: modelPath, delegate },
         runningMode: 'VIDEO',
         numHands,
-        minHandDetectionConfidence: 0.6,
-        minHandPresenceConfidence: 0.6,
+        // Slightly permissive thresholds: hands in dim light or seen at an
+        // angle get lower scores, and rejecting them is the most common cause
+        // of "the hand is not tracked". Wrong detections are rare at 0.5.
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
         minTrackingConfidence: 0.5,
       });
 
@@ -114,14 +119,22 @@ export class HandTracker {
     return this.landmarker !== null;
   }
 
-  /** Finds hands (and the body, if enabled) in the current video frame. */
-  detect(video: HTMLVideoElement, now: number): Detection {
+  /**
+   * Finds hands (and the body, if enabled) in the current frame. `source` is
+   * the video, or a brightened copy of it in low light.
+   */
+  detect(source: HTMLVideoElement | HTMLCanvasElement, now: number): Detection {
     if (!this.landmarker) return { hands: [], pose: null };
     // MediaPipe requires strictly increasing timestamps.
     const ts = Math.max(now, this.lastTimestamp + 1);
     this.lastTimestamp = ts;
-    const result = this.landmarker.detectForVideo(video, ts);
-    const pose = this.poseLandmarker?.detectForVideo(video, ts).landmarks[0] ?? null;
+    const result = this.landmarker.detectForVideo(source, ts);
+    // The body moves slowly compared with the fingers: tracking it every
+    // second frame halves its cost and keeps the hand tracker fast.
+    if (this.poseLandmarker && this.frameIndex++ % 2 === 0) {
+      this.lastPose = this.poseLandmarker.detectForVideo(source, ts).landmarks[0] ?? null;
+    }
+    const pose = this.poseLandmarker ? this.lastPose : null;
     const hands: RawHand[] = result.landmarks.map((landmarks, i) => {
       const category = result.handedness[i]?.[0];
       return {
@@ -138,5 +151,6 @@ export class HandTracker {
     this.landmarker = null;
     this.poseLandmarker?.close();
     this.poseLandmarker = null;
+    this.lastPose = null;
   }
 }

@@ -35,39 +35,63 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 161,
+      "line": 192,
       "title": "Starting the camera",
       "description": "**2. The real-time loop**\n\nAsks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy)."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 258,
+      "line": 298,
       "title": "One step per camera frame",
       "description": "**2. The real-time loop**\n\nrequestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.\n\n**In class:** Synchronizing processing with frame arrival minimizes latency: this is the \"no delay\" requirement."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 283,
+      "line": 354,
       "title": "The whole pipeline for one frame",
       "description": "**2. The real-time loop**\n\nRead top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.\n\n**In class:** This function is the pipeline diagram from the slides, in code."
     },
     {
       "file": "src/core/tracker.ts",
-      "line": 58,
+      "line": 60,
       "title": "Loading the hand tracker",
       "description": "**3. Perception: from pixels to points**\n\nLoads MediaPipe Hand Landmarker (palm detector + landmark model) on the GPU. If the GPU is not available, it falls back to the CPU. Files load from the app itself first (offline), then from the internet.\n\n**In class:** Two-stage detector: palm detection (SSD-style CNN) then landmark regression (21 keypoints)."
     },
     {
       "file": "src/core/tracker.ts",
-      "line": 118,
+      "line": 126,
       "title": "Detecting hands in a frame",
       "description": "**3. Perception: from pixels to points**\n\nReturns 21 points (x, y, z) per hand plus which hand it is (left/right). Timestamps must strictly increase because MediaPipe tracks hands between frames."
     },
     {
       "file": "src/core/tracker.ts",
-      "line": 90,
+      "line": 95,
       "title": "Body tracking",
       "description": "**3. Perception: from pixels to points**\n\nPose Landmarker gives 33 body points. Only enabled for the built-in ASL model, which needs to know where the hands are relative to the face and shoulders."
+    },
+    {
+      "file": "src/core/lighting.ts",
+      "line": 28,
+      "title": "Low-light boost",
+      "description": "**3. Perception: from pixels to points**\n\nIn a dark room the tracker receives a brightened copy of the frame (brightness gain up to 2.4x plus a little contrast). Brightness is measured twice per second on a 32x24 thumbnail, and the boost switches on below 75/255 and off above 95/255.\n\n**In class:** Image enhancement before detection: a classic preprocessing step. The two thresholds are hysteresis again."
+    },
+    {
+      "file": "src/core/continuity.ts",
+      "line": 27,
+      "title": "Bridging tracking gaps",
+      "description": "**3. Perception: from pixels to points**\n\nA hand lost for up to 150 ms (about 4 frames, typically motion blur) is kept at its last position, drawn faded. A hand that reappears under the other left/right label is not duplicated.\n\n**In class:** Temporal coherence: objects do not vanish between two frames, so short detection failures are filled in from the past."
+    },
+    {
+      "file": "src/state/engine.ts",
+      "line": 330,
+      "title": "Self-repair",
+      "description": "**3. Perception: from pixels to points**\n\nIf 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor."
+    },
+    {
+      "file": "src/core/framing.ts",
+      "line": 21,
+      "title": "Framing advice",
+      "description": "**3. Perception: from pixels to points**\n\nChecks the landmarks already found: hand touching the border, hand too small (far) or too large (close), shoulders missing for the ASL model. A hint appears only after 0.7 s, so it does not flicker."
     },
     {
       "file": "src/core/features.ts",
@@ -221,7 +245,7 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 340,
+      "line": 437,
       "title": "Connecting the network to the live stream",
       "description": "**7. The built-in ASL neural network**\n\nWhen the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold."
     },

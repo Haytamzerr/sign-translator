@@ -174,6 +174,19 @@ export function SettingsPanel({
           </>
         )}
         <Toggle label={t('settingSmoothing')} checked={settings.smoothing} onChange={(smoothing) => update({ smoothing })} />
+        <Field label={t('settingLowLight')} help={t('settingLowLightHelp')}>
+          <Segmented
+            label={t('settingLowLight')}
+            value={settings.lowLightBoost}
+            options={[
+              { value: 'auto' as const, label: t('lowLightAuto') },
+              { value: 'on' as const, label: t('lowLightOnOpt') },
+              { value: 'off' as const, label: t('lowLightOff') },
+            ]}
+            onChange={(lowLightBoost) => update({ lowLightBoost })}
+          />
+        </Field>
+        <Toggle label={t('settingHints')} checked={settings.trackingHints} onChange={(trackingHints) => update({ trackingHints })} />
         <Toggle label={t('settingEitherHand')} checked={settings.eitherHand} onChange={(eitherHand) => update({ eitherHand })} />
       </section>
 
