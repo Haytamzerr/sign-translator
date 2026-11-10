@@ -16,6 +16,7 @@ export interface CaptionWord extends Commit {
 
 export function CaptionBar({
   words,
+  spelling,
   previous,
   size,
   signs,
@@ -28,6 +29,8 @@ export function CaptionBar({
   onRemove,
 }: {
   words: CaptionWord[];
+  /** Letters fingerspelled so far for the word being spelled. */
+  spelling: string;
   previous: string;
   size: 'm' | 'l' | 'xl';
   signs: Sign[];
@@ -78,7 +81,7 @@ export function CaptionBar({
     <section className={`captions size-${size}`} aria-label="Captions">
       <p className="caption-previous">{previous || ' '}</p>
       <div className="caption-line" aria-live="polite">
-        {words.length === 0 && <span className="caption-placeholder">{t('captionPlaceholder')}</span>}
+        {words.length === 0 && !spelling && <span className="caption-placeholder">{t('captionPlaceholder')}</span>}
         {words.map((w) => (
           <span key={w.id} className="word-wrap">
             <button
@@ -122,6 +125,17 @@ export function CaptionBar({
             )}
           </span>
         ))}
+        {spelling && (
+          <span className="spelling" aria-label={`${t('spellingLive')}: ${spelling}`}>
+            <span className="spelling-tag">{t('spellingLive')}</span>
+            {spelling.split('').map((l, i) => (
+              <span key={i} className="spelling-letter">
+                {l}
+              </span>
+            ))}
+            <span className="spelling-cursor" aria-hidden="true" />
+          </span>
+        )}
       </div>
       <div className="caption-actions">
         <button className="icon-btn" onClick={onSpeak} aria-label={t('speak')} title={t('speak')}>

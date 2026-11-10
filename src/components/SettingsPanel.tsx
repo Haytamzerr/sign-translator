@@ -173,6 +173,14 @@ export function SettingsPanel({
             </Field>
           </>
         )}
+        <div className="field">
+          <Toggle
+            label={t('settingFingerspelling')}
+            checked={settings.fingerspelling !== 'off'}
+            onChange={(on) => update({ fingerspelling: on ? 'auto' : 'off' })}
+          />
+          <p className="field-help">{t('settingFingerspellingHelp')}</p>
+        </div>
         <Toggle label={t('settingSmoothing')} checked={settings.smoothing} onChange={(smoothing) => update({ smoothing })} />
         <Field label={t('settingLowLight')} help={t('settingLowLightHelp')}>
           <Segmented

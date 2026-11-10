@@ -111,3 +111,45 @@ export const IconAlert = (p: IconProps) => (
     <path d="M12 10v4M12 17.5v.01" />
   </Svg>
 );
+export const IconStar = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+  </Svg>
+);
+export const IconReplay = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 12a8 8 0 1 0 2.4-5.7" />
+    <path d="M4 4v4h4" />
+  </Svg>
+);
+export const IconNext = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 6l6 6-6 6" />
+  </Svg>
+);
+export const IconPrev = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 6l-6 6 6 6" />
+  </Svg>
+);
+export const IconExternal = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M14 4h6v6M20 4l-9 9" />
+    <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Svg>
+);
+export const IconPlay = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7 5l12 7-12 7z" />
+  </Svg>
+);
+export const IconPause = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8 5v14M16 5v14" />
+  </Svg>
+);
+export const IconSpell = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 18l4-12 4 12M5.5 14h5M14 18v-6a3 3 0 0 1 6 0v6M14 15h6" />
+  </Svg>
+);

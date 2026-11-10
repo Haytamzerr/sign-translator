@@ -8,7 +8,7 @@ import type { UiLanguage } from '../../i18n/strings';
 
 type Words = [en: string, fr: string, ar: string];
 
-const WORDS: Record<string, Words> = {
+export const WORDS: Record<string, Words> = {
   TV: ['TV', 'télé', 'تلفاز'],
   after: ['after', 'après', 'بعد'],
   airplane: ['airplane', 'avion', 'طائرة'],

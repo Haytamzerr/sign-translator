@@ -24,6 +24,8 @@ export interface Settings {
   lowLightBoost: 'auto' | 'on' | 'off';
   /** Show advice on the camera view (too dark, hand at the edge...). */
   trackingHints: boolean;
+  /** Recognize the manual alphabet (spelling names) in live translation. */
+  fingerspelling: 'auto' | 'off';
   eitherHand: boolean;
   /** Use the pre-trained ASL model (when the sign language is ASL). */
   pretrained: boolean;
@@ -60,6 +62,7 @@ export function defaultSettings(): Settings {
     smoothing: true,
     lowLightBoost: 'auto',
     trackingHints: true,
+    fingerspelling: 'auto',
     eitherHand: true,
     pretrained: true,
     pretrainedConfidence: 0.5,

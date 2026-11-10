@@ -37,7 +37,7 @@ The browser loads index.html, which runs this file. It mounts the React componen
 
 ### App: the owner of shared state
 
-[`src/App.tsx`, line 31](../src/App.tsx#L31)
+[`src/App.tsx`, line 46](../src/App.tsx#L46)
 
 App holds the settings, the sign library, the caption words and the transcript, and passes them to the panels. It creates ONE SignEngine, which does all the real-time work outside React.
 
@@ -45,13 +45,13 @@ App holds the settings, the sign library, the caption words and the transcript, 
 
 ### Receiving recognized words
 
-[`src/App.tsx`, line 101](../src/App.tsx#L101)
+[`src/App.tsx`, line 136](../src/App.tsx#L136)
 
 Every time the engine decides a sign was made ("commit"), this callback appends the word to the caption.
 
 ### Ending a sentence
 
-[`src/App.tsx`, line 105](../src/App.tsx#L105)
+[`src/App.tsx`, line 158](../src/App.tsx#L158)
 
 When the hands have been down for the chosen pause, the current words become a sentence: shown above the caption, added to the transcript, and read aloud if enabled.
 
@@ -59,13 +59,13 @@ When the hands have been down for the chosen pause, the current words become a s
 
 ### Starting the camera
 
-[`src/state/engine.ts`, line 192](../src/state/engine.ts#L192)
+[`src/state/engine.ts`, line 265](../src/state/engine.ts#L265)
 
 Asks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy).
 
 ### One step per camera frame
 
-[`src/state/engine.ts`, line 298](../src/state/engine.ts#L298)
+[`src/state/engine.ts`, line 374](../src/state/engine.ts#L374)
 
 requestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.
 
@@ -73,7 +73,7 @@ requestVideoFrameCallback fires exactly once per NEW camera frame. Using it inst
 
 ### The whole pipeline for one frame
 
-[`src/state/engine.ts`, line 354](../src/state/engine.ts#L354)
+[`src/state/engine.ts`, line 431](../src/state/engine.ts#L431)
 
 Read top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.
 
@@ -119,7 +119,7 @@ A hand lost for up to 150 ms (about 4 frames, typically motion blur) is kept at 
 
 ### Self-repair
 
-[`src/state/engine.ts`, line 330](../src/state/engine.ts#L330)
+[`src/state/engine.ts`, line 407](../src/state/engine.ts#L407)
 
 If 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor.
 
@@ -313,11 +313,63 @@ The sign and its mirror image are both scored and averaged, so left- and right-h
 
 ### Connecting the network to the live stream
 
-[`src/state/engine.ts`, line 437](../src/state/engine.ts#L437)
+[`src/state/engine.ts`, line 552](../src/state/engine.ts#L552)
 
 When the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold.
 
-## 8. Teaching new signs
+## 8. Fingerspelling
+
+### A tiny neural network in plain code
+
+[`src/core/letters.ts`, line 47](../src/core/letters.ts#L47)
+
+Three dense layers (63 -> 128 -> 64 -> 26) with ReLU, then softmax. The input is the same normalized hand shape as everywhere else. It runs in well under a millisecond, so no library is needed.
+
+> **In class:** A multi-layer perceptron: the simplest neural network, enough because the hard part (finding the hand) is already done.
+
+### From frames to letters
+
+[`src/core/letters.ts`, line 122](../src/core/letters.ts#L122)
+
+A letter is written when the same confident guess is held for 350 ms. It can be written again only after the hand moves or changes: that is how double letters (LL in HELLO) are spelled.
+
+### Letters in the live loop
+
+[`src/state/engine.ts`, line 509](../src/state/engine.ts#L509)
+
+Only the largest really detected hand, held still and raised (wrist in the upper 85% of the image), is classified. After a letter, movements are not read as whole signs for 1.5 s.
+
+## 9. Learn and Phrase to signs
+
+### Recorded demonstrations
+
+[`src/core/learn/demos.ts`, line 69](../src/core/learn/demos.ts#L69)
+
+Each of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 156 points per frame in 16-bit integers: about 3 MB for all signs.
+
+### Animation timeline
+
+[`src/components/SignPlayer.tsx`, line 74](../src/components/SignPlayer.tsx#L74)
+
+Signs become key poses 33 ms apart; letters become a raised hand held for half a second. Points are interpolated between key poses, with easing for transitions.
+
+> **In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games.
+
+### Scoring practice
+
+[`src/state/progress.ts`, line 36](../src/state/progress.ts#L36)
+
+3 stars if the built-in model ranks the target sign first with at least 50% confidence, 2 if first, 1 if in the top three.
+
+### Text to signs
+
+[`src/core/learn/phrase.ts`, line 93](../src/core/learn/phrase.ts#L93)
+
+Greedy longest match against every way of writing each sign (English, French, Arabic, aliases), so "thank you" and "ice cream" become one sign. Articles and "to be" are left out, as in ASL; other words are fingerspelled.
+
+> **In class:** Glossing: ASL has its own grammar, so a word-by-word mapping is only an approximation.
+
+## 10. Teaching new signs
 
 ### Recording a take
 

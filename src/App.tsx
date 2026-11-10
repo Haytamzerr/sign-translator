@@ -1,12 +1,18 @@
 /**
- * Main screen: camera and captions on the left, a panel with tabs on the right
- * (Live, Teach, Library, Settings). App owns the shared state and passes it down.
+ * Three screens, chosen in the top bar:
+ * - Translate: camera and captions on the left, a panel with tabs on the right
+ *   (Live, Teach, Library, Settings)
+ * - Learn: lessons with demonstrations and live practice
+ * - Phrase to signs: type text, watch it signed
+ * App owns the shared state and passes it down.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CaptionBar, type CaptionWord } from './components/CaptionBar';
 import { IconCamera, IconCameraOff } from './components/icons';
+import { LearnView } from './components/LearnView';
 import { LibraryPanel } from './components/LibraryPanel';
+import { PhraseView } from './components/PhraseView';
 import { LivePanel, type TranscriptLine } from './components/LivePanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Stage, type TeachOverlay } from './components/Stage';
@@ -19,6 +25,15 @@ import type { Sign } from './core/types';
 import { SIGN_LANGUAGES, speechLang, translator, type StringKey } from './i18n/strings';
 import { SignEngine } from './state/engine';
 import { loadSettings, saveSettings, type Settings } from './state/settings';
+
+type View = 'translate' | 'learn' | 'phrase';
+const VIEWS: { id: View; key: StringKey }[] = [
+  { id: 'translate', key: 'navTranslate' },
+  { id: 'learn', key: 'navLearn' },
+  { id: 'phrase', key: 'navPhrase' },
+];
+/** A spelled word is finished when no new letter comes for this long. */
+const SPELLING_PAUSE_MS = 1600;
 
 type Tab = 'live' | 'teach' | 'library' | 'settings';
 const TABS: { id: Tab; key: StringKey }[] = [
@@ -34,7 +49,9 @@ export default function App() {
   const snap = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
 
   const [signs, setSigns] = useState<Sign[]>([]);
+  const [view, setView] = useState<View>('translate');
   const [tab, setTab] = useState<Tab>('live');
+  const [spelling, setSpelling] = useState('');
   const [teachTarget, setTeachTarget] = useState<Sign | null>(null);
   const [overlay, setOverlay] = useState<TeachOverlay | null>(null);
   const [words, setWords] = useState<CaptionWord[]>([]);
@@ -51,6 +68,10 @@ export default function App() {
   const settingsRef = useRef(settings);
   const wordsRef = useRef(words);
   wordsRef.current = words;
+  const spellingRef = useRef(spelling);
+  spellingRef.current = spelling;
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const update = useCallback(
     (patch: Partial<Settings>) => {
@@ -96,11 +117,43 @@ export default function App() {
   }, [engine, settings.uiLanguage]);
   useEffect(() => () => engine.stop(), [engine]);
 
-  // New word recognized -> add it to the caption.
+  // Learn uses the camera for practice: nothing is written as captions there.
+  useEffect(() => engine.setMode(view === 'learn' ? 'practice' : 'translate'), [engine, view]);
+
+  /** Turns the letters spelled so far into one caption word ("haytam" -> "Haytam"). */
+  const flushSpelling = useCallback(() => {
+    const letters = spellingRef.current;
+    if (!letters) return;
+    spellingRef.current = '';
+    setSpelling('');
+    const label = letters.charAt(0) + letters.slice(1).toLowerCase();
+    setWords((prev) => [...prev, { id: nextId.current++, signId: 'spell', label, confidence: 1, kind: 'static', frames: [], t: performance.now() }]);
+  }, []);
+
+  // New word recognized -> add it to the caption (after any word being spelled).
   useEffect(
-    () => engine.onCommit((commit) => setWords((prev) => [...prev, { ...commit, id: nextId.current++ }])),
+    () =>
+      engine.onCommit((commit) => {
+        flushSpelling();
+        setWords((prev) => [...prev, { ...commit, id: nextId.current++ }]);
+      }),
+    [engine, flushSpelling],
+  );
+
+  // Fingerspelled letters build up a word in the caption.
+  useEffect(
+    () =>
+      engine.onLetter((letter) => {
+        if (viewRef.current !== 'translate') return;
+        setSpelling((s) => s + letter);
+      }),
     [engine],
   );
+  useEffect(() => {
+    if (!spelling) return;
+    const id = setTimeout(flushSpelling, SPELLING_PAUSE_MS);
+    return () => clearTimeout(id);
+  }, [spelling, flushSpelling]);
 
   const finishSentence = useCallback(() => {
     const current = wordsRef.current;
@@ -115,10 +168,10 @@ export default function App() {
 
   // A sentence ends when the hands have been down for the chosen pause.
   useEffect(() => {
-    if (snap.handsVisible || words.length === 0 || overlay) return;
+    if (snap.handsVisible || words.length === 0 || overlay || spelling) return;
     const id = setTimeout(finishSentence, settings.sentencePauseMs);
     return () => clearTimeout(id);
-  }, [snap.handsVisible, words.length, overlay, settings.sentencePauseMs, finishSentence]);
+  }, [snap.handsVisible, words.length, overlay, spelling, settings.sentencePauseMs, finishSentence]);
 
   // ---------- Library changes ----------
 
@@ -152,6 +205,13 @@ export default function App() {
             <p>{t('appTagline')}</p>
           </div>
         </div>
+        <nav className="views" aria-label="Main">
+          {VIEWS.map(({ id, key }) => (
+            <button key={id} className={view === id ? 'is-active' : ''} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>
+              {t(key)}
+            </button>
+          ))}
+        </nav>
         <div className="topbar-actions">
           <select
             className="select select-compact"
@@ -175,11 +235,24 @@ export default function App() {
         </div>
       </header>
 
+      {view === 'learn' && (
+        <main className="workspace workspace-full">
+          <LearnView engine={engine} snap={snap} settings={settings} t={t} />
+        </main>
+      )}
+      {view === 'phrase' && (
+        <main className="workspace workspace-full">
+          <PhraseView settings={settings} t={t} />
+        </main>
+      )}
+
+      {view === 'translate' && (
       <main className="workspace">
         <div className="main-column">
           <Stage engine={engine} snap={snap} settings={settings} teach={overlay} t={t} />
           <CaptionBar
             words={words}
+            spelling={spelling}
             previous={previous}
             size={settings.captionSize}
             signs={signs}
@@ -188,6 +261,7 @@ export default function App() {
             onUndo={() => setWords((list) => list.slice(0, -1))}
             onClear={() => {
               setWords([]);
+              setSpelling('');
               setPrevious('');
             }}
             onEndSentence={finishSentence}
@@ -276,6 +350,7 @@ export default function App() {
           {tab === 'settings' && <SettingsPanel settings={settings} update={update} cameraOn={cameraOn} t={t} />}
         </aside>
       </main>
+      )}
 
       {toast && (
         <div className="toast" role="status">

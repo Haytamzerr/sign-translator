@@ -17,37 +17,37 @@
     },
     {
       "file": "src/App.tsx",
-      "line": 31,
+      "line": 46,
       "title": "App: the owner of shared state",
       "description": "**1. Entry point and app state**\n\nApp holds the settings, the sign library, the caption words and the transcript, and passes them to the panels. It creates ONE SignEngine, which does all the real-time work outside React.\n\n**In class:** Separation of concerns: the interface (React) never runs the vision code itself. That keeps the video loop fast."
     },
     {
       "file": "src/App.tsx",
-      "line": 101,
+      "line": 136,
       "title": "Receiving recognized words",
       "description": "**1. Entry point and app state**\n\nEvery time the engine decides a sign was made (\"commit\"), this callback appends the word to the caption."
     },
     {
       "file": "src/App.tsx",
-      "line": 105,
+      "line": 158,
       "title": "Ending a sentence",
       "description": "**1. Entry point and app state**\n\nWhen the hands have been down for the chosen pause, the current words become a sentence: shown above the caption, added to the transcript, and read aloud if enabled."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 192,
+      "line": 265,
       "title": "Starting the camera",
       "description": "**2. The real-time loop**\n\nAsks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy)."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 298,
+      "line": 374,
       "title": "One step per camera frame",
       "description": "**2. The real-time loop**\n\nrequestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.\n\n**In class:** Synchronizing processing with frame arrival minimizes latency: this is the \"no delay\" requirement."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 354,
+      "line": 431,
       "title": "The whole pipeline for one frame",
       "description": "**2. The real-time loop**\n\nRead top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.\n\n**In class:** This function is the pipeline diagram from the slides, in code."
     },
@@ -83,7 +83,7 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 330,
+      "line": 407,
       "title": "Self-repair",
       "description": "**3. Perception: from pixels to points**\n\nIf 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor."
     },
@@ -245,27 +245,69 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 437,
+      "line": 552,
       "title": "Connecting the network to the live stream",
       "description": "**7. The built-in ASL neural network**\n\nWhen the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold."
+    },
+    {
+      "file": "src/core/letters.ts",
+      "line": 47,
+      "title": "A tiny neural network in plain code",
+      "description": "**8. Fingerspelling**\n\nThree dense layers (63 -> 128 -> 64 -> 26) with ReLU, then softmax. The input is the same normalized hand shape as everywhere else. It runs in well under a millisecond, so no library is needed.\n\n**In class:** A multi-layer perceptron: the simplest neural network, enough because the hard part (finding the hand) is already done."
+    },
+    {
+      "file": "src/core/letters.ts",
+      "line": 122,
+      "title": "From frames to letters",
+      "description": "**8. Fingerspelling**\n\nA letter is written when the same confident guess is held for 350 ms. It can be written again only after the hand moves or changes: that is how double letters (LL in HELLO) are spelled."
+    },
+    {
+      "file": "src/state/engine.ts",
+      "line": 509,
+      "title": "Letters in the live loop",
+      "description": "**8. Fingerspelling**\n\nOnly the largest really detected hand, held still and raised (wrist in the upper 85% of the image), is classified. After a letter, movements are not read as whole signs for 1.5 s."
+    },
+    {
+      "file": "src/core/learn/demos.ts",
+      "line": 69,
+      "title": "Recorded demonstrations",
+      "description": "**9. Learn and Phrase to signs**\n\nEach of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 156 points per frame in 16-bit integers: about 3 MB for all signs."
+    },
+    {
+      "file": "src/components/SignPlayer.tsx",
+      "line": 74,
+      "title": "Animation timeline",
+      "description": "**9. Learn and Phrase to signs**\n\nSigns become key poses 33 ms apart; letters become a raised hand held for half a second. Points are interpolated between key poses, with easing for transitions.\n\n**In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games."
+    },
+    {
+      "file": "src/state/progress.ts",
+      "line": 36,
+      "title": "Scoring practice",
+      "description": "**9. Learn and Phrase to signs**\n\n3 stars if the built-in model ranks the target sign first with at least 50% confidence, 2 if first, 1 if in the top three."
+    },
+    {
+      "file": "src/core/learn/phrase.ts",
+      "line": 93,
+      "title": "Text to signs",
+      "description": "**9. Learn and Phrase to signs**\n\nGreedy longest match against every way of writing each sign (English, French, Arabic, aliases), so \"thank you\" and \"ice cream\" become one sign. Articles and \"to be\" are left out, as in ASL; other words are fingerspelled.\n\n**In class:** Glossing: ASL has its own grammar, so a word-by-word mapping is only an approximation."
     },
     {
       "file": "src/components/TeachPanel.tsx",
       "line": 75,
       "title": "Recording a take",
-      "description": "**8. Teaching new signs**\n\nCountdown, then frames are collected for the chosen duration. Takes without visible hands are flagged so they can be redone."
+      "description": "**10. Teaching new signs**\n\nCountdown, then frames are collected for the chosen duration. Takes without visible hands are flagged so they can be redone."
     },
     {
       "file": "src/core/teach.ts",
       "line": 45,
       "title": "Still or moving?",
-      "description": "**8. Teaching new signs**\n\nA take counts as moving if the wrist travels more than 0.6 hand sizes or the handshape changes noticeably. The majority of takes decides."
+      "description": "**10. Teaching new signs**\n\nA take counts as moving if the wrist travels more than 0.6 hand sizes or the handshape changes noticeably. The majority of takes decides."
     },
     {
       "file": "src/core/teach.ts",
       "line": 73,
       "title": "Warning about similar signs",
-      "description": "**8. Teaching new signs**\n\nRuns the new examples through a recognizer built from the existing library. If they would be recognized as another sign, the user is warned before saving."
+      "description": "**10. Teaching new signs**\n\nRuns the new examples through a recognizer built from the existing library. If they would be recognized as another sign, the user is warned before saving."
     }
   ]
 }
