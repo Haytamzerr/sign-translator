@@ -91,7 +91,7 @@ function readPalette(el: HTMLElement): AvatarPalette {
   return {
     skin: v('--avatar-skin', '#2e333c'),
     rim: v('--avatar-rim', '#6fd3ff'),
-    inset: v('--mannequin-inset', '#1c2230'),
+    inset: v('--avatar-inset', '#0d1a2a'),
   };
 }
 
@@ -131,7 +131,7 @@ export function SignPlayer({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const insetRef = useRef<HTMLDivElement>(null);
-  const mannequinRef = useRef<Avatar | null>(null);
+  const avatarRef = useRef<Avatar | null>(null);
   const [failed, setFailed] = useState(false);
   const keys = useMemo(() => buildTimeline(clips, neutral, layout, rig), [clips, neutral, layout, rig]);
   const settings = useRef({ speed, mirror, loop, playing, onClipChange, onEnd });
@@ -141,16 +141,16 @@ export function SignPlayer({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let mannequin: Avatar;
+    let avatar: Avatar;
     try {
-      mannequin = new Avatar(canvas);
+      avatar = new Avatar(canvas);
     } catch (err) {
       console.error('3D view unavailable', err);
       setFailed(true);
       return;
     }
-    mannequinRef.current = mannequin;
-    const applyPalette = () => mannequin.setPalette(readPalette(canvas));
+    avatarRef.current = avatar;
+    const applyPalette = () => avatar.setPalette(readPalette(canvas));
     applyPalette();
     // Follow theme changes (the theme is an attribute on <html>, or the system setting).
     const themeObserver = new MutationObserver(applyPalette);
@@ -159,7 +159,7 @@ export function SignPlayer({
     media.addEventListener('change', applyPalette);
     const resize = () => {
       const { width, height } = canvas.getBoundingClientRect();
-      mannequin.resize(Math.max(1, width), Math.max(1, height));
+      avatar.resize(Math.max(1, width), Math.max(1, height));
     };
     resize();
     const sizeObserver = new ResizeObserver(resize);
@@ -168,15 +168,15 @@ export function SignPlayer({
       themeObserver.disconnect();
       media.removeEventListener('change', applyPalette);
       sizeObserver.disconnect();
-      mannequin.dispose();
-      mannequinRef.current = null;
+      avatar.dispose();
+      avatarRef.current = null;
     };
   }, []);
 
   // Playback.
   useEffect(() => {
-    const mannequin = mannequinRef.current;
-    if (!mannequin) return;
+    const avatar = avatarRef.current;
+    if (!avatar) return;
     const scratch = new Float32Array(POSE_SIZE);
     let k = 0; // current key
     let elapsed = 0; // ms since key k started (at speed 1)
@@ -237,10 +237,10 @@ export function SignPlayer({
           s.onClipChange?.(clip);
         }
       }
-      mannequin.update(solveFigure(pose, layout, rig), now - lastDraw, snapNext);
+      avatar.update(solveFigure(pose, layout, rig), now - lastDraw, snapNext);
       lastDraw = now;
       snapNext = false;
-      const inset = mannequin.render(s.mirror, closeUp);
+      const inset = avatar.render(s.mirror, closeUp);
       const box = insetRef.current;
       if (box && (inset || insetShown)) {
         insetShown = !!inset;
@@ -262,7 +262,7 @@ export function SignPlayer({
       ) : (
         <button
           className="icon-btn player-reset"
-          onClick={() => mannequinRef.current?.resetView()}
+          onClick={() => avatarRef.current?.resetView()}
           aria-label={resetLabel}
           title={resetLabel}
         >

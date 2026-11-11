@@ -34,10 +34,6 @@ export interface Head {
   /** Unit axes of the head: to the viewer's right, up, forward (out of the face). */
   axes: [Vec3, Vec3, Vec3];
   radii: Vec3;
-  /** Eyes, eyebrows and lips, as lines lying on the head's surface. */
-  features: { points: Vec3[]; closed: boolean; kind: 'eye' | 'brow' | 'lips' }[];
-  pupils: Vec3[];
-  nose: Vec3 | null;
 }
 
 export interface Figure {
@@ -125,8 +121,8 @@ function centroid(pose: Pose, [from, to]: [number, number]): Vec3 | null {
 }
 
 /**
- * The head is an ellipsoid turned the way the face points. Face lines are
- * moved onto its surface so they never float in front of it or sink inside.
+ * The head's position and the way the face points: across from eye to eye,
+ * up from the lips to the eyebrows, and forward out of the face.
  */
 function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3): Head | null {
   const ovalSeen = centroid(pose, layout.faceOval);
@@ -147,41 +143,10 @@ function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3): He
   const radii: Vec3 = [rig.faceWidth * 0.55, rig.faceHeight * 0.6, rig.faceWidth * 0.62];
   const center = add(add(oval, scale(forward, -radii[2] * 0.55)), scale(up, radii[1] * 0.08));
 
-  /** Puts a point on the front of the ellipsoid, slightly above the surface. */
-  const onSurface = (p: Vec3, lift = 0.004): Vec3 => {
-    const rel = sub(p, center);
-    let u = dot(rel, across) / radii[0];
-    let v = dot(rel, up) / radii[1];
-    const r = Math.hypot(u, v);
-    if (r > 0.97) {
-      u *= 0.97 / r;
-      v *= 0.97 / r;
-    }
-    const w = Math.sqrt(Math.max(0, 1 - u * u - v * v)) * radii[2] + lift;
-    return add(add(add(center, scale(across, u * radii[0])), scale(up, v * radii[1])), scale(forward, w));
-  };
-
-  const line = (range: [number, number], closed: boolean, kind: 'eye' | 'brow' | 'lips') => {
-    const points: Vec3[] = [];
-    for (let i = range[0]; i < range[1]; i++) if (visible(pose, i)) points.push(onSurface(toScene(point(pose, i))));
-    return { points, closed, kind };
-  };
-  const b = layout.body[0];
-  const nose = visible(pose, b + BODY.nose) ? onSurface(toScene(point(pose, b + BODY.nose)), 0) : null;
-
   return {
     center,
     axes: [across, up, forward],
     radii,
-    features: [
-      line(layout.eyeL, true, 'eye'),
-      line(layout.eyeR, true, 'eye'),
-      line(layout.browL, false, 'brow'),
-      line(layout.browR, false, 'brow'),
-      line(layout.lips, true, 'lips'),
-    ],
-    pupils: [onSurface(eyeA, 0.006), onSurface(eyeB, 0.006)],
-    nose,
   };
 }
 

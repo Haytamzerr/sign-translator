@@ -349,23 +349,37 @@ Each of the 250 signs is the clearest real recording in the training data (picke
 
 ### A body with fixed bone lengths
 
-[`src/core/learn/figure.ts`, line 72](../src/core/learn/figure.ts#L72)
+[`src/core/learn/figure.ts`, line 69](../src/core/learn/figure.ts#L69)
 
 The camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).
 
 > **In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera).
 
-### Drawing the 3D figure
+### Moving a 3D human with the recordings
 
-[`src/components/mannequin.ts`, line 269](../src/components/mannequin.ts#L269)
+[`src/components/avatar.ts`, line 191](../src/components/avatar.ts#L191)
 
-The figure is made of simple solids: a turned torso, an egg-shaped head with the face lines placed on its surface, cylinders and spheres for the limbs. All cylinders and spheres of a frame are drawn in one call each (instancing).
+The signer is a sculpted human model with a skeleton (MakeHuman, CC0). For each bone, the smallest rotation that makes it point like the matching segment of the recording, starting from its parent bone: arms, hand, every finger joint, head.
 
-> **In class:** Instanced rendering: the same shape drawn many times with a different position each time, in one draw call.
+> **In class:** Retargeting: transferring motion recorded on one body to another body with different proportions, by copying directions instead of positions.
+
+### Fingers a real hand can make
+
+[`src/components/avatar.ts`, line 275](../src/components/avatar.ts#L275)
+
+Tracking depth for fingers is noisy. The knuckles bend -25 to 95 degrees and spread at most 22; the two other joints are hinges that bend only towards the palm. Each joint then glides to its new rotation (45 ms), so one noisy frame cannot snap a finger.
+
+> **In class:** Joint limits are how animation systems keep a skeleton anatomically possible.
+
+### The 26 letters, defined exactly
+
+[`src/core/learn/handshapes.ts`, line 121](../src/core/learn/handshapes.ts#L121)
+
+A single recorded sample of a letter can be wrong, so each letter is built from joint angles (how much each finger joint bends, where the thumb points, how the hand is held) into the same 21 points the tracker gives.
 
 ### Animation timeline
 
-[`src/components/SignPlayer.tsx`, line 36](../src/components/SignPlayer.tsx#L36)
+[`src/components/SignPlayer.tsx`, line 37](../src/components/SignPlayer.tsx#L37)
 
 Signs become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.
 
