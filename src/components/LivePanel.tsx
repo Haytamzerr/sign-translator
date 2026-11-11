@@ -31,6 +31,10 @@ export function LivePanel({
 }) {
   // Motion meter: full bar at three times the threshold, with a tick at the threshold.
   const motionFill = Math.min(snap.motion / (moveThreshold * 3), 1);
+  // Only plausible guesses: a taught sign far outside its threshold (or a
+  // built-in sign below 10%) is not a guess, and listing it would suggest the
+  // app sees that word in every movement.
+  const guesses = snap.candidates.filter((c) => (c.signId.startsWith('asl:') ? c.confidence >= 0.1 : c.ratio < 1.25));
 
   return (
     <div className="panel-body">
@@ -57,11 +61,11 @@ export function LivePanel({
 
       <section className="block">
         <h3 className="block-title">{t('liveGuesses')}</h3>
-        {snap.candidates.length === 0 ? (
+        {guesses.length === 0 ? (
           <p className="muted">{t('liveGuessesEmpty')}</p>
         ) : (
           <ol className="guesses">
-            {snap.candidates.map((c) => {
+            {guesses.map((c) => {
               const accepted = c.ratio < 1;
               return (
                 <li key={c.signId} className={accepted ? 'is-accepted' : ''}>

@@ -5,20 +5,13 @@
 
 import { frameShapeDistance, hasHands, motionBetween } from './features';
 import { Recognizer, staticKeyFrames } from './recognizer';
-import { trimStill } from './sequence';
+import { trimEmpty, trimEntryExit, trimStill } from './sequence';
 import type { Frame, Sign, SignKind } from './types';
 
 /** Fewest frames with visible hands for a take to be usable. */
 export const MIN_TAKE_FRAMES = 8;
 
-/** Removes frames without hands at the start and end of a take. */
-export function trimEmpty(frames: Frame[]): Frame[] {
-  const first = frames.findIndex(hasHands);
-  if (first === -1) return [];
-  let last = frames.length - 1;
-  while (last > first && !hasHands(frames[last]!)) last--;
-  return frames.slice(first, last + 1);
-}
+export { trimEmpty, trimEntryExit } from './sequence';
 
 /**
  * Measures how much a take moves: the largest wrist travel from the start
@@ -61,8 +54,9 @@ export function averageMotion(frames: Frame[]): number {
 
 /** Final cleaning of a take before saving, depending on the sign type. */
 export function prepareTake(frames: Frame[], kind: SignKind, moveThreshold: number): Frame[] {
-  const trimmed = trimEmpty(frames);
-  return kind === 'dynamic' ? trimStill(trimmed, moveThreshold * 0.6) : trimmed;
+  // A held sign keeps only the hold; a moving sign keeps its whole movement
+  // (live movements are compared whole too), without still frames at the ends.
+  return kind === 'dynamic' ? trimStill(trimEmpty(frames), moveThreshold * 0.6) : trimEntryExit(frames);
 }
 
 /**

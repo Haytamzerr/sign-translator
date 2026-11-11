@@ -59,13 +59,13 @@ When the hands have been down for the chosen pause, the current words become a s
 
 ### Starting the camera
 
-[`src/state/engine.ts`, line 265](../src/state/engine.ts#L265)
+[`src/state/engine.ts`, line 278](../src/state/engine.ts#L278)
 
 Asks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy).
 
 ### One step per camera frame
 
-[`src/state/engine.ts`, line 374](../src/state/engine.ts#L374)
+[`src/state/engine.ts`, line 387](../src/state/engine.ts#L387)
 
 requestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.
 
@@ -73,7 +73,7 @@ requestVideoFrameCallback fires exactly once per NEW camera frame. Using it inst
 
 ### The whole pipeline for one frame
 
-[`src/state/engine.ts`, line 431](../src/state/engine.ts#L431)
+[`src/state/engine.ts`, line 444](../src/state/engine.ts#L444)
 
 Read top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.
 
@@ -119,7 +119,7 @@ A hand lost for up to 150 ms (about 4 frames, typically motion blur) is kept at 
 
 ### Self-repair
 
-[`src/state/engine.ts`, line 407](../src/state/engine.ts#L407)
+[`src/state/engine.ts`, line 420](../src/state/engine.ts#L420)
 
 If 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor.
 
@@ -205,21 +205,29 @@ When the hands stop or leave, the collected frames form a segment, classified as
 
 ### Choosing example frames
 
-[`src/core/recognizer.ts`, line 44](../src/core/recognizer.ts#L44)
+[`src/core/recognizer.ts`, line 53](../src/core/recognizer.ts#L53)
 
 From each recorded take of a still sign, keep evenly spaced frames from the middle 60%, skipping the moments the hand arrives and leaves.
 
 ### Automatic thresholds
 
-[`src/core/recognizer.ts`, line 110](../src/core/recognizer.ts#L110)
+[`src/core/recognizer.ts`, line 133](../src/core/recognizer.ts#L133)
 
 Leave-one-out: compare each example with the other examples of the same sign. Consistent signs get a strict threshold, looser signs a wider one.
 
 > **In class:** Per-class calibration from intra-class variance, computed instantly, no training needed.
 
+### Checking against real other signs
+
+[`src/core/recognizer.ts`, line 185](../src/core/recognizer.ts#L185)
+
+Three takes only show how much YOUR sign varies, not what other signs look like. The 250 real recordings of Learn mode serve as negative examples: each taught sign's threshold is kept at 80% of its distance to the 5th closest real sign, so real other signs stay outside it. A test teaches signs and performs 124 unseen real signs: about 0.1% wrong words.
+
+> **In class:** Open-set calibration with negative examples (a background set), as used in speaker and face verification.
+
 ### k-nearest neighbors
 
-[`src/core/recognizer.ts`, line 140](../src/core/recognizer.ts#L140)
+[`src/core/recognizer.ts`, line 196](../src/core/recognizer.ts#L196)
 
 Distance to every stored frame; each sign is scored by the average of its 3 closest examples.
 
@@ -227,7 +235,7 @@ Distance to every stored frame; each sign is scored by the average of its 3 clos
 
 ### Saying "I don't know"
 
-[`src/core/recognizer.ts`, line 178](../src/core/recognizer.ts#L178)
+[`src/core/recognizer.ts`, line 234](../src/core/recognizer.ts#L234)
 
 Distances become probabilities with a softmax that includes an extra "unknown" option at ratio 1. If no sign is clearly closer than its threshold, "unknown" wins.
 
@@ -313,7 +321,7 @@ The sign and its mirror image are both scored and averaged, so left- and right-h
 
 ### Connecting the network to the live stream
 
-[`src/state/engine.ts`, line 552](../src/state/engine.ts#L552)
+[`src/state/engine.ts`, line 581](../src/state/engine.ts#L581)
 
 When the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold.
 
@@ -335,7 +343,7 @@ A letter is written when the same confident guess is held for 350 ms. It can be 
 
 ### Letters in the live loop
 
-[`src/state/engine.ts`, line 509](../src/state/engine.ts#L509)
+[`src/state/engine.ts`, line 529](../src/state/engine.ts#L529)
 
 Only the largest really detected hand, held still and raised (wrist in the upper 85% of the image), is classified. After a letter, movements are not read as whole signs for 1.5 s.
 
@@ -409,13 +417,13 @@ Countdown, then frames are collected for the chosen duration. Takes without visi
 
 ### Still or moving?
 
-[`src/core/teach.ts`, line 45](../src/core/teach.ts#L45)
+[`src/core/teach.ts`, line 38](../src/core/teach.ts#L38)
 
 A take counts as moving if the wrist travels more than 0.6 hand sizes or the handshape changes noticeably. The majority of takes decides.
 
 ### Warning about similar signs
 
-[`src/core/teach.ts`, line 73](../src/core/teach.ts#L73)
+[`src/core/teach.ts`, line 67](../src/core/teach.ts#L67)
 
 Runs the new examples through a recognizer built from the existing library. If they would be recognized as another sign, the user is warned before saving.
 
