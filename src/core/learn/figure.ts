@@ -16,6 +16,7 @@
  * z towards the viewer, in shoulder widths, origin between the shoulders.
  */
 
+import type { LetterHold } from './handshapes';
 import { BODY, DEMO_POINTS, DIMS, point, setPoint, visible, type DemoLayout, type HandShape, type Pose, type Rig } from './demos';
 
 export type Vec3 = [number, number, number];
@@ -236,20 +237,61 @@ export function prepareFrames(frames: Pose[], layout: DemoLayout, rig: Rig): Pos
       }
     }
   }
+  return smoothFrames(out);
+}
+
+/**
+ * Removes the tracker's trembling from a recording: every coordinate becomes a
+ * weighted average of itself and its neighbours in time (a Gaussian, centred,
+ * so nothing is delayed: the whole recording is known in advance). Points not
+ * visible are left out of the average and stay not visible.
+ */
+export function smoothFrames(frames: Pose[], sigma = 1.4): Pose[] {
+  const radius = Math.ceil(sigma * 2.5);
+  const weights = Array.from({ length: 2 * radius + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
+  const n = frames.length;
+  const out = frames.map((f) => f.slice());
+  const size = frames[0]?.length ?? 0;
+  for (let c = 0; c < size; c++) {
+    for (let t = 0; t < n; t++) {
+      if (Number.isNaN(frames[t]![c]!)) continue;
+      let sum = 0;
+      let total = 0;
+      for (let d = -radius; d <= radius; d++) {
+        const v = frames[t + d]?.[c];
+        if (v === undefined || Number.isNaN(v)) continue;
+        const w = weights[d + radius]!;
+        sum += v * w;
+        total += w;
+      }
+      out[t]![c] = sum / total;
+    }
+  }
   return out;
 }
 
-/** A standing pose with the right hand raised in front of the shoulder, forming a letter. */
-export function letterPose(neutral: Pose, layout: DemoLayout, rig: Rig, shape: HandShape): Pose {
+/**
+ * A standing pose with the right hand forming a letter. `hold` places the arm:
+ * forearm upright in front of the shoulder (most letters), across the chest
+ * for letters that point sideways (G, H), or forwards for those pointing down
+ * (P, Q).
+ */
+export function letterPose(neutral: Pose, layout: DemoLayout, rig: Rig, shape: HandShape, hold: LetterHold = 'up'): Pose {
   const pose = neutral.slice();
   const b = layout.body[0];
   const ls = point(pose, b + BODY.leftShoulder);
   const rs = point(pose, b + BODY.rightShoulder);
   const out = Math.sign(rs[0] - ls[0]) || 1; // direction away from the body on the right side
-  // Recorded axes: y down, smaller z towards the viewer. Elbow low and forward,
-  // forearm upright, palm facing the viewer.
-  setPoint(pose, b + BODY.rightElbow, [rs[0] + out * 0.3, rs[1] + 0.75, rs[2] - 0.45]);
-  const wrist = [rs[0] + out * 0.18, rs[1] + 0.15, rs[2] - 0.75];
+  // Recorded axes: y down, smaller z towards the viewer.
+  const ARMS: Record<LetterHold, [number[], number[]]> = {
+    up: [[out * 0.3, 0.75, -0.45], [out * 0.18, 0.15, -0.75]],
+    side: [[out * 0.3, 0.75, -0.45], [out * 0.18, 0.15, -0.75]],
+    sideways: [[out * 0.38, 0.62, -0.3], [-out * 0.12, 0.5, -0.72]],
+    down: [[out * 0.3, 0.75, -0.3], [out * 0.2, 0.6, -0.88]],
+  };
+  const [elbowOffset, wristOffset] = ARMS[hold];
+  setPoint(pose, b + BODY.rightElbow, [rs[0] + elbowOffset[0]!, rs[1] + elbowOffset[1]!, rs[2] + elbowOffset[2]!]);
+  const wrist = [rs[0] + wristOffset[0]!, rs[1] + wristOffset[1]!, rs[2] + wristOffset[2]!];
   setPoint(pose, b + BODY.rightWrist, wrist);
   const [h] = layout.rightHand;
   shape.forEach((p, i) => {
