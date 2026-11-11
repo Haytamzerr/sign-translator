@@ -4,10 +4,16 @@
 # Produces the data behind the Learn and "Phrase to signs" views, and the
 # letter recognizer used to spell names.
 #
-# Part 1, sign demonstrations: for each of the 250 ASL signs, choose the
-# clearest real recording in the Google ISLR / PopSign data (face, shoulders
-# and hands visible, recognized most confidently by the trained model) and pack
-# it as a small animation.
+# Part 1, sign demonstrations: for each of the 250 ASL signs, build one clean
+# motion from many real recordings in the Google ISLR / PopSign data:
+#   - keep recordings with face, shoulders and hands visible that the trained
+#     model recognizes (probability at least 0.4);
+#   - un-mirror the selfie videos and mirror left-handed signers, so every
+#     demonstration is signed with the right hand;
+#   - start from the most typical recording, keep the 20 closest to it (one way
+#     of doing the sign, not a blend of variants), and average them after
+#     aligning them in time (DTW Barycenter Averaging). Hand shapes are averaged
+#     relative to the wrist, so the fingers stay sharp.
 #
 # Part 2, alphabet: download the ASLNow! fingerspelling landmarks (MIT
 # license, recorded with MediaPipe's web hand tracker), train a small letter
@@ -108,92 +114,217 @@ def run_demos():
         return xy
 
     from joblib import Parallel, delayed
-    per_sign = 30
+    per_sign = int(os.environ.get('PER_SIGN', 60))
     cands = train.sample(frac=1, random_state=SEED).groupby('sign').head(per_sign)
+
+    def load(path):
+        return pd.read_parquet(data / path, columns=['x', 'y', 'z']).values.reshape(-1, 543, 3).astype(np.float32)
+
     t0 = time.time()
     arrays = Parallel(n_jobs=os.cpu_count(), batch_size=64)(delayed(load)(p) for p in cands.path)
     print(f'loaded {len(arrays)} candidates in {time.time() - t0:.0f} s')
 
-    chosen = {}
-    for (row, xy) in zip(cands.itertuples(), arrays):
+    # 1. Keep recordings that are complete and that the trained model recognizes.
+    pool = {}
+    for row, raw in zip(cands.itertuples(), arrays):
+        xy = raw[..., :2]
         t = len(xy)
         face_ok = np.mean(~np.isnan(xy[:, 1, 0]))
         sh_ok = np.mean(~np.isnan(xy[:, POSE0 + 11, 0]) & ~np.isnan(xy[:, POSE0 + 12, 0]))
         lh = np.mean(~np.isnan(xy[:, 468, 0])); rh = np.mean(~np.isnan(xy[:, 522, 0]))
         if face_ok < 0.9 or sh_ok < 0.9 or max(lh, rh) < 0.6 or not (12 <= t <= 120):
             continue
-        prob = 0.5
-        if sess is not None:
-            x, m = prepare(xy[:, COMPACT, :])
-            logits = sess.run(None, {'x': x[None], 'mask': m[None]})[0][0]
-            e = np.exp(logits - logits.max()); prob = float(e[labels.index(row.sign)] / e.sum())
-        score = prob + 0.3 * max(lh, rh) + 0.1 * face_ok
-        if row.sign not in chosen or score > chosen[row.sign][0]:
-            chosen[row.sign] = (score, prob, xy, row.path)
-    missing = [s for s in labels if s not in chosen]
-    print('demos chosen:', len(chosen), '| missing:', missing)
+        x, m = prepare(xy[:, COMPACT, :])
+        logits = sess.run(None, {'x': x[None], 'mask': m[None]})[0][0]
+        e = np.exp(logits - logits.max()); prob = float(e[labels.index(row.sign)] / e.sum())
+        if prob < float(os.environ.get('MIN_PROB', 0.4)):
+            continue
+        pool.setdefault(row.sign, []).append((prob, raw))
+    print('signs with usable recordings:', len(pool), '| missing:', [s for s in labels if s not in pool])
 
-    # Body proportions of the chosen recordings give the x stretch of the phone videos.
+    # Body proportions of the phone videos give their sideways stretch.
     ratios = []
-    for _, _, xy, _ in chosen.values():
-        nose, ls, rs = xy[:, POSE0], xy[:, POSE0 + 11], xy[:, POSE0 + 12]
-        w = np.linalg.norm(ls - rs, axis=-1); h = (ls[:, 1] + rs[:, 1]) / 2 - nose[:, 1]
-        r = h / w; ratios.extend(r[np.isfinite(r) & (r > 0.1) & (r < 2)].tolist())
-    x_fix = float(np.median(ratios)) / TYPICAL_BODY_RATIO   # multiply x by this to get square units
+    for recs in pool.values():
+        for _, raw in recs[:5]:
+            nose, ls, rs = raw[:, POSE0, :2], raw[:, POSE0 + 11, :2], raw[:, POSE0 + 12, :2]
+            w = np.linalg.norm(ls - rs, axis=-1); h = (ls[:, 1] + rs[:, 1]) / 2 - nose[:, 1]
+            r = h / w; ratios.extend(r[np.isfinite(r) & (r > 0.1) & (r < 2)].tolist())
+    x_fix = float(np.median(ratios)) / TYPICAL_BODY_RATIO
     print(f'body ratio {np.median(ratios):.3f} -> x correction {x_fix:.3f}')
 
-    from scipy.signal import savgol_filter
+    face0 = 21 * 2 + len(POSE_BODY)
+    BODY_SL = slice(42, face0)
 
-    def smooth(series):
-        """Fills gaps of up to 8 frames, then removes jitter (Savitzky-Golay, window 7)."""
-        out = series.copy(); t = np.arange(len(series)); ok = ~np.isnan(series)
-        if ok.sum() >= 2:
-            filled = np.interp(t, t[ok], series[ok])
-            gap = np.zeros(len(series), int)
-            run = 0
-            for i in range(len(series)):
-                run = run + 1 if not ok[i] else 0; gap[i] = run
-            # Keep only gaps short enough to be tracking glitches.
-            for i in range(len(series) - 1, -1, -1):
-                if not ok[i]:
-                    j = i
-                    while j >= 0 and not ok[j]: j -= 1
-                    length = i - j
-                    first_valid = ok[:i].any() and ok[i:].any()
-                    if length <= 8 and first_valid: out[j + 1:i + 1] = filled[j + 1:i + 1]
-        good = ~np.isnan(out)
-        start = None
-        for i in range(len(out) + 1):
-            if i < len(out) and good[i]:
-                if start is None: start = i
-            elif start is not None:
-                if i - start >= 7: out[start:i] = savgol_filter(out[start:i], 7, 2)
-                start = None
-        return out
-
-    index = []; chunks = []; offset = 0
-    for sign in labels:
-        if sign not in chosen:
-            continue
-        _, prob, _, path = chosen[sign]
-        raw = pd.read_parquet(data / path, columns=['x', 'y', 'z']).values.reshape(-1, 543, 3).astype(np.float32)
+    def normalize_rec(raw):
+        """Shoulder-centred, shoulder-width units; hand and face depth relative to themselves."""
         pts = raw[:, DEMO_POINTS, :].copy()
-        # Depth: the body's depth is measured from the middle of the shoulders. Hand
-        # and face depths are kept as recorded, relative to their own wrist and face
-        # centre: the app only needs the shape of the hand and the turn of the head,
-        # and adding the (very noisy) body depth would push most of them out of range.
-        face0 = 21 * 2 + len(POSE_BODY)
-        body = slice(42, face0)
         pts[..., 0] *= x_fix
         pts[..., 2] *= x_fix
         ls, rs = pts[:, 43, :], pts[:, 44, :]
         center = np.nanmean((ls + rs) / 2, axis=0)
         width = np.nanmean(np.linalg.norm(ls[:, :2] - rs[:, :2], axis=-1))
         pts[..., :2] = (pts[..., :2] - center[:2]) / width
-        pts[:, body, 2] = (pts[:, body, 2] - center[2]) / width
+        pts[:, BODY_SL, 2] = (pts[:, BODY_SL, 2] - center[2]) / width
         pts[:, :42, 2] /= width
         pts[:, face0:, 2] /= width
         pts[..., 2] = np.clip(pts[..., 2], -2.0, 2.0)
+        return pts
+
+    # Mirroring: body points swap sides; face eye and brow groups swap.
+    body_swap = [0, 2, 1, 4, 3, 6, 5, 8, 7]
+    fl = len(FACE_OVAL) + len(LIPS)
+    eyes = list(range(fl, fl + 16)); eyes_r = list(range(fl + 16, fl + 32))
+    brows = list(range(fl + 32, fl + 42)); brows_r = list(range(fl + 42, fl + 52))
+    face_perm = list(range(len(FACE)))
+    for a_, b_ in list(zip(eyes, eyes_r)) + list(zip(brows, brows_r)):
+        face_perm[a_], face_perm[b_] = b_, a_
+    PERM = list(range(21, 42)) + list(range(0, 21)) + [42 + i for i in body_swap] + [face0 + i for i in face_perm]
+
+    def mirror(pts):
+        out = pts[:, PERM, :].copy()
+        out[..., 0] *= -1
+        return out
+
+    def dominant_slot(pts):
+        """The hand that moves and shows the most (0: left-hand slot, 1: right-hand slot)."""
+        scores = []
+        for s in (0, 21):
+            w = pts[:, s, :2]; ok = ~np.isnan(w[:, 0])
+            move = np.nansum(np.linalg.norm(np.diff(w, axis=0), axis=-1)) if ok.sum() > 1 else 0
+            scores.append(ok.mean() + move)
+        return int(np.argmax(scores))
+
+    def fill(series):
+        """Fills missing frames with the nearest seen value (for alignment only)."""
+        out = series.copy(); ok = ~np.isnan(out[:, 0])
+        if not ok.any():
+            return np.zeros_like(out)
+        idx = np.where(ok, np.arange(len(out)), -1); np.maximum.accumulate(idx, out=idx)
+        first = np.argmax(ok); idx[idx < 0] = first
+        return out[idx]
+
+    def align_features(pts):
+        dom = fill(pts[:, 21, :2]); off = fill(pts[:, 0, :2])
+        shape = pts[:, 21:42, :2] - pts[:, 21:22, :2]
+        size = np.linalg.norm(shape[:, 9], axis=-1)[:, None, None]
+        shape = fill((shape / np.where(size > 1e-4, size, 1)).reshape(len(pts), -1))
+        return np.concatenate([dom * 2.0, off, shape * 0.15], 1).astype(np.float64)
+
+    try:
+        from numba import njit
+    except ImportError:
+        os.system('pip install -q numba'); from numba import njit
+
+    @njit(cache=True)
+    def dtw_path(a, b, band):
+        n, m = len(a), len(b)
+        cost = np.full((n + 1, m + 1), np.inf); cost[0, 0] = 0.0
+        for i in range(1, n + 1):
+            lo = max(1, int(i * m / n) - band); hi = min(m, int(i * m / n) + band)
+            for j in range(lo, hi + 1):
+                d = 0.0
+                for k in range(a.shape[1]):
+                    t = a[i - 1, k] - b[j - 1, k]; d += t * t
+                cost[i, j] = np.sqrt(d) + min(cost[i - 1, j], cost[i, j - 1], cost[i - 1, j - 1])
+        i, j = n, m; path = []
+        while i > 0 and j > 0:
+            path.append((i - 1, j - 1))
+            c = (cost[i - 1, j - 1], cost[i - 1, j], cost[i, j - 1])
+            if c[0] <= c[1] and c[0] <= c[2]: i -= 1; j -= 1
+            elif c[1] <= c[2]: i -= 1
+            else: j -= 1
+        return cost[n, m] / (n + m), path[::-1]
+
+    def average(recs, iters=6):
+        """DTW Barycenter Averaging over the full point arrays."""
+        feats = [align_features(p) for p in recs]
+        band = 20
+        # Start from the most typical recording (smallest total distance to the others).
+        k = len(recs)
+        dist = np.zeros((k, k))
+        for i in range(k):
+            for j in range(i + 1, k):
+                dist[i, j] = dist[j, i] = dtw_path(feats[i], feats[j], band)[0]
+        medoid = int(np.argmin(dist.sum(1)))
+        # Keep the recordings closest to it: one way of doing the sign, not a blend of variants.
+        keep = list(np.argsort(dist[medoid])[:min(k, 20)])
+        recs = [recs[i] for i in keep]; feats = [feats[i] for i in keep]
+        avg = recs[0].copy() if keep[0] == medoid else recs[keep.index(medoid)].copy()
+        avg_f = align_features(avg)
+        for _ in range(iters):
+            sums = np.zeros(avg.shape, np.float64); counts = np.zeros(avg.shape[:2], np.float64)
+            shape_sum = np.zeros((len(avg), 2, 21, 3)); size_sum = np.zeros((len(avg), 2)); shape_n = np.zeros((len(avg), 2))
+            for p, f in zip(recs, feats):
+                _, path = dtw_path(avg_f, f, band)
+                for i, j in path:
+                    frame = p[j]; ok = ~np.isnan(frame[:, 0])
+                    sums[i][ok] += frame[ok]; counts[i][ok] += 1
+                    # Hands: average the shape (relative to the wrist, unit size) and the size separately.
+                    for h, s0 in enumerate((0, 21)):
+                        if ok[s0] and ok[s0 + 9]:
+                            rel = frame[s0:s0 + 21] - frame[s0]
+                            size = np.linalg.norm(rel[9])
+                            if size > 1e-4:
+                                shape_sum[i, h] += rel / size; size_sum[i, h] += size; shape_n[i, h] += 1
+            new = np.where(counts[..., None] > 0, sums / np.maximum(counts[..., None], 1), np.nan)
+            for h, s0 in enumerate((0, 21)):
+                # A hand is shown where most aligned recordings have it.
+                for i in range(len(avg)):
+                    if shape_n[i, h] > 0 and shape_n[i, h] >= 0.4 * counts[i].max():
+                        wrist = new[i, s0]
+                        new[i, s0:s0 + 21] = wrist + shape_sum[i, h] / shape_n[i, h] * (size_sum[i, h] / shape_n[i, h])
+                    else:
+                        new[i, s0:s0 + 21] = np.nan
+            avg = new.astype(np.float32); avg_f = align_features(avg)
+        return avg, len(recs)
+
+    from scipy.signal import savgol_filter
+
+    def smooth(series):
+        """Fills gaps of up to 8 frames, then removes the remaining jitter."""
+        out = series.copy(); t = np.arange(len(series)); ok = ~np.isnan(series)
+        if ok.sum() >= 2:
+            filled = np.interp(t, t[ok], series[ok])
+            i = 0
+            while i < len(out):
+                if not ok[i]:
+                    j = i
+                    while j < len(out) and not ok[j]: j += 1
+                    if i > 0 and j < len(out) and j - i <= 8: out[i:j] = filled[i:j]
+                    i = j
+                else:
+                    i += 1
+        good = ~np.isnan(out); start = None
+        for i in range(len(out) + 1):
+            if i < len(out) and good[i]:
+                if start is None: start = i
+            elif start is not None:
+                if i - start >= 9: out[start:i] = savgol_filter(out[start:i], 9, 2)
+                start = None
+        return out
+
+    # Most recordings use one hand slot as the dominant hand; mirror the others to it.
+    doms = [dominant_slot(normalize_rec(raw)) for recs in pool.values() for _, raw in recs[:3]]
+    DOM = 1 if np.mean(doms) >= 0.5 else 0
+    print('dominant hand slot:', 'right_hand' if DOM else 'left_hand', f'({np.mean(doms):.2f})')
+
+    index = []; chunks = []; offset = 0; t0 = time.time()
+    for sign in labels:
+        if sign not in pool:
+            continue
+        recs = sorted(pool[sign], key=lambda r: -r[0])[:40]
+        normed = []
+        for _, raw in recs:
+            pts = normalize_rec(raw)
+            if dominant_slot(pts) != DOM:
+                pts = mirror(pts)
+            if DOM == 0:
+                pts = mirror(pts)  # the app expects the dominant hand in the right-hand slot
+            normed.append(pts)
+        if len(normed) >= 3:
+            pts, used = average(normed)
+        else:
+            pts, used = normed[0], 1
         for k in range(pts.shape[1]):
             for c in range(3):
                 pts[:, k, c] = smooth(pts[:, k, c])
@@ -201,8 +332,11 @@ def run_demos():
             pts = pts[np.round(np.linspace(0, len(pts) - 1, MAX_DEMO_FRAMES)).astype(int)]
         q = np.where(np.isnan(pts), -32768, np.clip(np.round(pts * 1000), -32767, 32767)).astype('<i2')
         chunks.append(q.tobytes())
-        index.append({'label': sign, 'offset': offset, 'frames': int(len(pts)), 'confidence': round(prob, 3)})
+        prob = float(np.mean([r[0] for r in recs]))
+        index.append({'label': sign, 'offset': offset, 'frames': int(len(pts)), 'confidence': round(prob, 3), 'recordings': int(used)})
         offset += q.size
+        if len(index) % 25 == 0:
+            print(f'{len(index)} signs averaged ({time.time() - t0:.0f} s)', flush=True)
     with open(OUT / 'sign_demos.bin', 'wb') as f:
         for c in chunks: f.write(c)
     b = 42
