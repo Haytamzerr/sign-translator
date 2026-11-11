@@ -28,6 +28,15 @@ const SHARPNESS = 5;
 const FRAMES_PER_STATIC_SAMPLE = 6;
 /** For still signs, the score of a sign is the average of its k best matches. */
 const K_NEAREST = 3;
+/**
+ * Background check: a taught sign's threshold is kept below this share of its
+ * distance to real other signs, so those stay outside. The distance used is
+ * that of the BACKGROUND_RANK-th closest real sign, not the closest: if the
+ * sign you teach happens to be one of the real recordings, it can still be
+ * recognized.
+ */
+const BACKGROUND_MARGIN = 0.8;
+const BACKGROUND_RANK = 5;
 
 interface Prototype {
   sign: Sign;
@@ -56,6 +65,9 @@ export class Recognizer {
   private templates: Template[] = [];
   private thresholds = new Map<string, number>();
   private signs: Sign[] = [];
+  /** Real recordings of other signs (see core/learn/background.ts). */
+  private backgroundSeqs: SeqStep[][] = [];
+  private backgroundFrames: Frame[] = [];
 
   constructor(private options: RecognizerOptions) {}
 
@@ -75,6 +87,17 @@ export class Recognizer {
 
   get hasDynamic(): boolean {
     return this.templates.length > 0;
+  }
+
+  /**
+   * Gives the recognizer real recordings of other signs, used to keep each
+   * taught sign's threshold tight enough that those are not mistaken for it.
+   */
+  setBackground(recordings: Frame[][]): void {
+    this.backgroundSeqs = recordings.filter((r) => r.length >= 4).map((r) => toSequence(r));
+    // Still handshapes: the start, middle and end of each recording.
+    this.backgroundFrames = recordings.flatMap((r) => [0.15, 0.5, 0.85].map((q) => r[Math.floor((r.length - 1) * q)]!));
+    this.calibrate();
   }
 
   /** Prepares every example once, so recognition per frame stays fast. */
@@ -133,6 +156,39 @@ export class Recognizer {
       }
       const value = worst * 1.6 + limits.min * 0.5;
       this.thresholds.set(sign.id, Math.min(limits.max, Math.max(limits.min, value)));
+    }
+    this.applyBackground();
+  }
+
+  /** How close this sign comes to real other signs (see BACKGROUND_RANK), or null without background. */
+  backgroundDistance(sign: Sign): number | null {
+    const distances: number[] = [];
+    if (sign.kind === 'static') {
+      if (!this.backgroundFrames.length) return null;
+      const own = this.prototypes.filter((p) => p.sign.id === sign.id);
+      if (!own.length) return null;
+      for (const frame of this.backgroundFrames) {
+        const d = own.map((p) => frameShapeDistance(frame, p.frame)).sort((a, b) => a - b).slice(0, K_NEAREST);
+        distances.push(d.reduce((a, b) => a + b, 0) / d.length);
+      }
+    } else {
+      if (!this.backgroundSeqs.length) return null;
+      const own = this.templates.filter((t) => t.sign.id === sign.id);
+      if (!own.length) return null;
+      for (const seq of this.backgroundSeqs) distances.push(Math.min(...own.map((t) => dtw(seq, t.seq))));
+    }
+    distances.sort((a, b) => a - b);
+    return distances[Math.min(distances.length - 1, BACKGROUND_RANK - 1)]!;
+  }
+
+  /** Tightens thresholds so real other signs stay outside them. */
+  private applyBackground(): void {
+    for (const sign of this.signs) {
+      const near = this.backgroundDistance(sign);
+      if (near === null) continue;
+      const limits = THRESHOLDS[sign.kind];
+      const current = this.thresholds.get(sign.id) ?? limits.initial;
+      this.thresholds.set(sign.id, Math.max(limits.min, Math.min(current, near * BACKGROUND_MARGIN)));
     }
   }
 

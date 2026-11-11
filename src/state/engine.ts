@@ -26,6 +26,8 @@ import { extractFrame, hasHands } from '../core/features';
 import { framingHint, HintDebouncer, type FramingHint } from '../core/framing';
 import { boostFilter, FrameBooster, LightMeter, nextBoostState } from '../core/lighting';
 import { LetterDecoder, loadLetterModel, type LetterGuess, type LetterModel } from '../core/letters';
+import { backgroundFromDemos } from '../core/learn/background';
+import { loadDemos } from '../core/learn/demos';
 import { Recognizer } from '../core/recognizer';
 import { FrameSmoother } from '../core/smoothing';
 import { HAND_BONES, HandTracker } from '../core/tracker';
@@ -84,6 +86,8 @@ const LIGHT_CHECK_MS = 500;
 const MAX_FRAME_ERRORS = 8;
 /** After a spelled letter, movements are not read as whole signs for this long. */
 const SPELLING_GUARD_MS = 1500;
+/** A taught sign matched this well (distance / threshold) is written without asking the built-in model. */
+const CLEAR_MATCH_RATIO = 0.6;
 
 export class SignEngine {
   private tracker = new HandTracker();
@@ -230,7 +234,16 @@ export class SignEngine {
   setLibrary(signs: Sign[]): void {
     this.recognizer.setLibrary(signs);
     this.decoder.reset();
+    // Real recordings of other signs keep each taught sign's threshold honest
+    // (see core/learn/background.ts). Loaded once, only when there are taught signs.
+    if (signs.length > 0 && !this.backgroundRequested) {
+      this.backgroundRequested = true;
+      void loadDemos().then((library) => {
+        if (library) this.recognizer.setBackground(backgroundFromDemos(library));
+      });
+    }
   }
+  private backgroundRequested = false;
 
   /** While teaching, recognition is paused so no words are written. */
   setPaused(paused: boolean): void {
@@ -469,8 +482,15 @@ export class SignEngine {
       output = this.decoder.push(frame);
       const practice = this.mode === 'practice';
       if (output.commit && !practice && now - this.lastLetterAt > SPELLING_GUARD_MS) {
-        this.flashUntil = now + 300;
-        for (const listener of this.commitListeners) listener(output.commit);
+        const personal = output.commit;
+        const ratio = output.candidates.find((c) => c.signId === personal.signId)?.ratio ?? 0;
+        if (aslOn && output.segment && personal.kind === 'dynamic' && ratio > CLEAR_MATCH_RATIO) {
+          // A borderline match from your own signs: the built-in model looks at
+          // the same movement first, and wins if it clearly recognizes another sign.
+          void this.classifySegment(output.segment, personal);
+        } else {
+          this.emit(personal);
+        }
       }
       if (aslOn && output.segment && (practice || !output.segment.committed)) void this.classifySegment(output.segment);
       letter = this.readLetter(raw, aspect, now, output.state === 'moving');
@@ -548,10 +568,22 @@ export class SignEngine {
     return this.hints.update(hint, now);
   }
 
-  /** Runs the pre-trained model on a finished movement and writes the word if sure. */
-  private async classifySegment(segment: { start: number; end: number }): Promise<void> {
+  private emit(commit: Commit): void {
+    this.flashUntil = performance.now() + 300;
+    for (const listener of this.commitListeners) listener(commit);
+  }
+
+  /**
+   * Runs the pre-trained model on a finished movement and writes the word if
+   * sure. `fallback`: a borderline word from your own signs, written instead
+   * when the model does not clearly recognize the movement.
+   */
+  private async classifySegment(segment: { start: number; end: number }, fallback?: Commit): Promise<void> {
     const part = this.rawBuffer.filter((r) => r.t >= segment.start - SEGMENT_LEAD_MS && r.t <= segment.end);
-    if (part.length < 6 || !this.asl) return;
+    if (part.length < 6 || !this.asl) {
+      if (fallback) this.emit(fallback);
+      return;
+    }
     try {
       const guesses = await this.asl.classify(part.map((p) => p.raw), 5);
       const result: SegmentResult = { guesses: guesses.map((g) => ({ label: g.label, confidence: g.confidence })), t: segment.end };
@@ -566,8 +598,13 @@ export class SignEngine {
         ratio: g.confidence >= threshold ? 0.5 : 1.5,
         confidence: g.confidence,
       }));
-      this.update({ candidates });
       const best = candidates[0];
+      const builtInWins = !!best && best.confidence >= threshold && (!fallback || best.label !== fallback.label);
+      if (fallback && !builtInWins) {
+        if (this.running && !this.paused) this.emit(fallback);
+        return;
+      }
+      this.update({ candidates });
       if (!best || best.confidence < threshold || !this.running || this.paused) return;
       // Movements between spelled letters are not whole signs.
       if (performance.now() - this.lastLetterAt < SPELLING_GUARD_MS) return;
@@ -580,10 +617,10 @@ export class SignEngine {
         t: segment.end,
       };
       this.decoder.noteExternalCommit(segment.end);
-      this.flashUntil = performance.now() + 300;
-      for (const listener of this.commitListeners) listener(commit);
+      this.emit(commit);
     } catch (err) {
       console.error('Pre-trained model failed on this sign', err);
+      if (fallback) this.emit(fallback);
     }
   }
 

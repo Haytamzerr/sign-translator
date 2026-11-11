@@ -3,7 +3,7 @@
  * speeds, using Dynamic Time Warping (DTW).
  */
 
-import { MISSING_HAND_PENALTY, motionBetween, shapeDistance } from './features';
+import { hasHands, MISSING_HAND_PENALTY, motionBetween, shapeDistance } from './features';
 import type { Frame } from './types';
 
 /** Every moving sign is resampled to this many steps before comparison. */
@@ -127,3 +127,62 @@ export function trimStill(frames: Frame[], threshold: number, pad = 2): Frame[] 
   if (first === -1) return frames;
   return frames.slice(Math.max(0, first - pad), Math.min(frames.length, last + pad + 1));
 }
+
+/** Fewest frames with hands kept when trimming the hand's entry and exit. */
+const MIN_CORE_FRAMES = 8;
+
+/** Removes frames without hands at the start and end of a take. */
+export function trimEmpty(frames: Frame[]): Frame[] {
+  const first = frames.findIndex(hasHands);
+  if (first === -1) return [];
+  let last = frames.length - 1;
+  while (last > first && !hasHands(frames[last]!)) last--;
+  return frames.slice(first, last + 1);
+}
+
+/** Below this height (share of the picture from the top), a hand is near the bottom edge. */
+const BOTTOM_ZONE = 0.72;
+
+/** Wrist height of the lowest visible hand, or null. */
+function wristY(frame: Frame): number | null {
+  const ys = frame.hands.filter((h) => h !== null).map((h) => h!.pos[1]);
+  return ys.length ? Math.max(...ys) : null;
+}
+
+/**
+ * Removes the hand rising into view at the start of a take and dropping out
+ * of view at the end. These are not part of the sign, but every sign you make
+ * starts and ends with them: kept in an example, they would make any movement
+ * look a little like that sign, and a held handshape would count as moving.
+ * Only applies when the hand really enters from (or leaves by) the bottom edge.
+ */
+export function trimEntryExit(frames: Frame[]): Frame[] {
+  const shown = trimEmpty(frames);
+  if (shown.length < MIN_CORE_FRAMES) return shown;
+  let start = 0;
+  const y0 = wristY(shown[0]!);
+  if (y0 !== null && y0 > BOTTOM_ZONE) {
+    // Skip while the hand keeps rising.
+    while (start < shown.length - 1) {
+      const a = wristY(shown[start]!);
+      const b = wristY(shown[start + 1]!);
+      if (a === null || b === null || b > a - 0.004) break;
+      start++;
+    }
+  }
+  let end = shown.length - 1;
+  const y1 = wristY(shown[end]!);
+  if (y1 !== null && y1 > BOTTOM_ZONE) {
+    // Skip back while the hand was dropping.
+    while (end > start) {
+      const a = wristY(shown[end - 1]!);
+      const b = wristY(shown[end]!);
+      if (a === null || b === null || b < a + 0.004) break;
+      end--;
+    }
+  }
+  const core = shown.slice(start, end + 1);
+  // Never cut a take down to almost nothing.
+  return core.filter(hasHands).length >= MIN_CORE_FRAMES ? core : shown;
+}
+

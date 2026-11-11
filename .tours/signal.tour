@@ -35,19 +35,19 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 265,
+      "line": 278,
       "title": "Starting the camera",
       "description": "**2. The real-time loop**\n\nAsks the browser for the webcam (getUserMedia) at 640x480 or 1280x720, 30 fps, then loads the hand tracker and starts the loop. Camera errors are translated into clear messages (blocked, missing, busy)."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 374,
+      "line": 387,
       "title": "One step per camera frame",
       "description": "**2. The real-time loop**\n\nrequestVideoFrameCallback fires exactly once per NEW camera frame. Using it instead of a timer means no frame is processed twice and none is waited for.\n\n**In class:** Synchronizing processing with frame arrival minimizes latency: this is the \"no delay\" requirement."
     },
     {
       "file": "src/state/engine.ts",
-      "line": 431,
+      "line": 444,
       "title": "The whole pipeline for one frame",
       "description": "**2. The real-time loop**\n\nRead top to bottom: detect hands (and body) -> build normalized features -> smooth -> decoder decides if a sign happened -> words are committed -> skeleton drawn -> speed measured. React only receives a summary 10 times per second.\n\n**In class:** This function is the pipeline diagram from the slides, in code."
     },
@@ -83,7 +83,7 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 407,
+      "line": 420,
       "title": "Self-repair",
       "description": "**3. Perception: from pixels to points**\n\nIf 8 frames fail in a row (graphics card reset after sleep, driver problem), the tracker is rebuilt. A second failure within a minute switches to the processor."
     },
@@ -155,25 +155,31 @@
     },
     {
       "file": "src/core/recognizer.ts",
-      "line": 44,
+      "line": 53,
       "title": "Choosing example frames",
       "description": "**6. Recognition from your own examples**\n\nFrom each recorded take of a still sign, keep evenly spaced frames from the middle 60%, skipping the moments the hand arrives and leaves."
     },
     {
       "file": "src/core/recognizer.ts",
-      "line": 110,
+      "line": 133,
       "title": "Automatic thresholds",
       "description": "**6. Recognition from your own examples**\n\nLeave-one-out: compare each example with the other examples of the same sign. Consistent signs get a strict threshold, looser signs a wider one.\n\n**In class:** Per-class calibration from intra-class variance, computed instantly, no training needed."
     },
     {
       "file": "src/core/recognizer.ts",
-      "line": 140,
+      "line": 185,
+      "title": "Checking against real other signs",
+      "description": "**6. Recognition from your own examples**\n\nThree takes only show how much YOUR sign varies, not what other signs look like. The 250 real recordings of Learn mode serve as negative examples: each taught sign's threshold is kept at 80% of its distance to the 5th closest real sign, so real other signs stay outside it. A test teaches signs and performs 124 unseen real signs: about 0.1% wrong words.\n\n**In class:** Open-set calibration with negative examples (a background set), as used in speaker and face verification."
+    },
+    {
+      "file": "src/core/recognizer.ts",
+      "line": 196,
       "title": "k-nearest neighbors",
       "description": "**6. Recognition from your own examples**\n\nDistance to every stored frame; each sign is scored by the average of its 3 closest examples.\n\n**In class:** k-NN is the simplest classifier and perfect for few-shot learning: adding a sign is just storing examples."
     },
     {
       "file": "src/core/recognizer.ts",
-      "line": 178,
+      "line": 234,
       "title": "Saying \"I don't know\"",
       "description": "**6. Recognition from your own examples**\n\nDistances become probabilities with a softmax that includes an extra \"unknown\" option at ratio 1. If no sign is clearly closer than its threshold, \"unknown\" wins.\n\n**In class:** Open-set recognition: a classifier must be able to reject inputs that belong to no class."
     },
@@ -245,7 +251,7 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 552,
+      "line": 581,
       "title": "Connecting the network to the live stream",
       "description": "**7. The built-in ASL neural network**\n\nWhen the decoder reports a finished movement that your personal library did not recognize, the matching frames are sent to the network. The word is written if its probability passes the threshold."
     },
@@ -263,7 +269,7 @@
     },
     {
       "file": "src/state/engine.ts",
-      "line": 509,
+      "line": 529,
       "title": "Letters in the live loop",
       "description": "**8. Fingerspelling**\n\nOnly the largest really detected hand, held still and raised (wrist in the upper 85% of the image), is classified. After a letter, movements are not read as whole signs for 1.5 s."
     },
@@ -323,13 +329,13 @@
     },
     {
       "file": "src/core/teach.ts",
-      "line": 45,
+      "line": 38,
       "title": "Still or moving?",
       "description": "**10. Teaching new signs**\n\nA take counts as moving if the wrist travels more than 0.6 hand sizes or the handshape changes noticeably. The majority of takes decides."
     },
     {
       "file": "src/core/teach.ts",
-      "line": 73,
+      "line": 67,
       "title": "Warning about similar signs",
       "description": "**10. Teaching new signs**\n\nRuns the new examples through a recognizer built from the existing library. If they would be recognized as another sign, the user is warned before saving."
     }
