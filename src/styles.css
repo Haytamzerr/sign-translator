@@ -1314,7 +1314,11 @@ p {
 }
 
 .player {
-  background: radial-gradient(ellipse 70% 60% at 50% 38%, var(--surface-2), var(--bg) 75%);
+  /* A dark studio stage in both themes: the signer reads best against it. */
+  background:
+    radial-gradient(ellipse 55% 50% at 50% 40%, rgba(64, 170, 220, 0.32), transparent 70%),
+    linear-gradient(180deg, #0f2236 0%, #0a1524 100%);
+  --mannequin-inset: #0d1a2a;
 }
 
 .player-canvas {

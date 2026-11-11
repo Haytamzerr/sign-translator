@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { loadDemos, type DemoLibrary, type HandShape } from '../core/learn/demos';
+import { letterHandShape, letterHold } from '../core/learn/handshapes';
 import { loadLetterShapes } from '../core/letters';
 import type { Clip } from './SignPlayer';
 
@@ -37,8 +38,9 @@ export function useLearningData(): LearningData {
 /** The clip for a sign label or a single letter, if its data is available. */
 export function clipFor(id: string, data: LearningData): Clip | null {
   if (id.length === 1 && id >= 'A' && id <= 'Z') {
-    const shape = data.shapes?.[id];
-    return shape ? { kind: 'letter', letter: id, shape } : null;
+    // Exact handshape when defined; the recorded one otherwise.
+    const shape = letterHandShape(id) ?? data.shapes?.[id];
+    return shape ? { kind: 'letter', letter: id, shape, hold: letterHold(id) } : null;
   }
   const demo = data.demos?.get(id);
   return demo ? { kind: 'sign', label: id, frames: demo.frames } : null;

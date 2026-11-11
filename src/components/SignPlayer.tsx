@@ -9,13 +9,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DemoLayout, HandShape, Pose, Rig } from '../core/learn/demos';
+import type { LetterHold } from '../core/learn/handshapes';
 import { letterPose, POSE_SIZE, prepareFrames, solveFigure } from '../core/learn/figure';
 import { IconFront } from './icons';
-import { Mannequin, type MannequinPalette } from './mannequin';
+import { Avatar, type AvatarPalette } from './avatar';
 
 export type Clip =
   | { kind: 'sign'; label: string; frames: Pose[] }
-  | { kind: 'letter'; letter: string; shape: HandShape };
+  | { kind: 'letter'; letter: string; shape: HandShape; hold?: LetterHold };
 
 interface Key {
   pose: Pose;
@@ -42,7 +43,7 @@ export function buildTimeline(clips: Clip[], neutral: Pose, layout: DemoLayout, 
       const last = keys[keys.length - 1];
       if (last) last.hold = PAUSE_BETWEEN_CLIPS_MS;
     } else {
-      keys.push({ pose: letterPose(neutral, layout, rig, clip.shape), blend: LETTER_BLEND_MS, hold: LETTER_HOLD_MS, clip: ci, letter: true });
+      keys.push({ pose: letterPose(neutral, layout, rig, clip.shape, clip.hold), blend: LETTER_BLEND_MS, hold: LETTER_HOLD_MS, clip: ci, letter: true });
     }
   });
   return keys;
@@ -61,16 +62,35 @@ function lerpPose(a: Pose, b: Pose, t: number, out: Pose): Pose {
   return out;
 }
 
-function readPalette(el: HTMLElement): MannequinPalette {
+/**
+ * Curved interpolation between recorded frames b and c (Catmull-Rom spline),
+ * using the frames before (a) and after (d) to keep the speed continuous.
+ * Straight-line interpolation makes visible corners at every recorded frame;
+ * the curve passes through the same points without them.
+ */
+function splinePose(a: Pose, b: Pose, c: Pose, d: Pose, t: number, out: Pose): Pose {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  for (let i = 0; i < out.length; i++) {
+    const p1 = b[i]!;
+    const p2 = c[i]!;
+    if (Number.isNaN(p1) || Number.isNaN(p2)) {
+      out[i] = Number.isNaN(p2) ? (t < 0.5 ? p1 : NaN) : p2;
+      continue;
+    }
+    const p0 = Number.isNaN(a[i]!) ? p1 : a[i]!;
+    const p3 = Number.isNaN(d[i]!) ? p2 : d[i]!;
+    out[i] = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 - 3 * p2 + p3) * t3);
+  }
+  return out;
+}
+
+function readPalette(el: HTMLElement): AvatarPalette {
   const css = getComputedStyle(el);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
-    body: v('--mannequin-body', '#a9b3c5'),
-    joint: v('--mannequin-joint', '#8792a8'),
-    head: v('--mannequin-head', '#b7c0d0'),
-    feature: v('--mannequin-feature', '#262d3b'),
-    right: v('--mannequin-right', '#f2b544'),
-    left: v('--mannequin-left', '#5ec8e0'),
+    skin: v('--avatar-skin', '#2e333c'),
+    rim: v('--avatar-rim', '#6fd3ff'),
     inset: v('--mannequin-inset', '#1c2230'),
   };
 }
@@ -111,7 +131,7 @@ export function SignPlayer({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const insetRef = useRef<HTMLDivElement>(null);
-  const mannequinRef = useRef<Mannequin | null>(null);
+  const mannequinRef = useRef<Avatar | null>(null);
   const [failed, setFailed] = useState(false);
   const keys = useMemo(() => buildTimeline(clips, neutral, layout, rig), [clips, neutral, layout, rig]);
   const settings = useRef({ speed, mirror, loop, playing, onClipChange, onEnd });
@@ -121,9 +141,9 @@ export function SignPlayer({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let mannequin: Mannequin;
+    let mannequin: Avatar;
     try {
-      mannequin = new Mannequin(canvas);
+      mannequin = new Avatar(canvas);
     } catch (err) {
       console.error('3D view unavailable', err);
       setFailed(true);
@@ -165,6 +185,10 @@ export function SignPlayer({
     let ended = false;
     let frame = 0;
     let insetShown = false;
+    let lastDraw = performance.now();
+    let snapNext = true; // the first frame of a new demonstration jumps straight to its pose
+    const loopFrom = new Float32Array(POSE_SIZE);
+    let looped = false;
 
     const step = (now: number) => {
       const s = settings.current;
@@ -178,6 +202,10 @@ export function SignPlayer({
         }
         if (k >= keys.length) {
           if (s.loop) {
+            // Start again from where the figure is now, not from the rest pose:
+            // jumping back to rest would show as a snap at every repeat.
+            loopFrom.set(scratch);
+            looped = true;
             k = 0;
             elapsed = 0;
           } else {
@@ -192,19 +220,27 @@ export function SignPlayer({
       let closeUp = false;
       if (keys.length) {
         const cur = keys[k]!;
-        const prev = k > 0 ? keys[k - 1]!.pose : neutral;
+        const prev = k > 0 ? keys[k - 1]!.pose : looped ? loopFrom : neutral;
         const t = cur.blend > 0 ? Math.min(1, elapsed / cur.blend) : 1;
-        // Ease in and out for letters and transitions; linear between recorded frames.
-        const eased = cur.blend > FRAME_MS ? t * t * (3 - 2 * t) : t;
-        pose = lerpPose(prev, cur.pose, eased, scratch);
+        if (cur.blend > FRAME_MS || k === 0) {
+          // Transitions and letters: ease in and out.
+          pose = lerpPose(prev, cur.pose, t * t * (3 - 2 * t), scratch);
+        } else {
+          // Between recorded frames of the same sign: a smooth curve.
+          const before = k > 1 && keys[k - 2]!.clip === cur.clip ? keys[k - 2]!.pose : prev;
+          const after = k + 1 < keys.length && keys[k + 1]!.clip === cur.clip && keys[k + 1]!.blend <= FRAME_MS ? keys[k + 1]!.pose : cur.pose;
+          pose = splinePose(before, prev, cur.pose, after, t, scratch);
+        }
         closeUp = cur.letter;
         if (cur.clip !== clip) {
           clip = cur.clip;
           s.onClipChange?.(clip);
         }
       }
-      mannequin.update(solveFigure(pose, layout, rig), rig.hand);
-      const inset = mannequin.render(s.mirror, closeUp, rig.hand);
+      mannequin.update(solveFigure(pose, layout, rig), now - lastDraw, snapNext);
+      lastDraw = now;
+      snapNext = false;
+      const inset = mannequin.render(s.mirror, closeUp);
       const box = insetRef.current;
       if (box && (inset || insetShown)) {
         insetShown = !!inset;
