@@ -15,8 +15,9 @@ Everything runs on your own computer. No video is uploaded anywhere.
 - Fingerspelling: the 26 letters of the ASL alphabet are recognized, so names
   and other words can be spelled; the letters build up a word in the caption
 - Learn: 14 lessons (13 topics and the alphabet) where a 3D human signer
-  performs every sign from a real signer's recording (drag to see it from the
-  side), with exact handshapes for the 26 letters, live practice with the
+  performs every sign, averaged from up to 20 real signers' recordings: arms
+  placed by inverse kinematics, hands that touch the face where the sign does
+  and never pass through the body (drag to see it from the side), with exact handshapes for the 26 letters, live practice with the
   camera scored with 1 to 3 stars, saved progress, and a quiz mode
 - Phrase to signs: type a sentence in English, French or Arabic and watch it
   signed; names and unknown words are fingerspelled, and words ASL leaves out
@@ -122,8 +123,8 @@ src/
 The model in `public/models/asl/` is produced by `training/train_asl.ipynb`.
 The sign demonstrations and the alphabet recognizer (`public/models/learn/`
 and `public/models/letters/`) are produced by `training/prepare_learning_data.py`,
-which picks the clearest recording of each sign and trains the letter
-classifier.
+which averages up to 20 recordings of each sign (after aligning them in time)
+and trains the letter classifier.
 The 3D signer (`public/models/avatar/signer.glb`) is built from the MakeHuman 2
 assets by `training/build_avatar.py`.
 To retrain it, open the notebook on Kaggle, add the

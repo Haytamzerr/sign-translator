@@ -27,6 +27,12 @@ export interface Arm {
   wrist: Vec3;
   /** 21 hand points, or null when the hand was not tracked (a closed hand is drawn). */
   hand: Vec3[] | null;
+  /**
+   * Where the picture shows the wrist and the hand (left-right and up-down as
+   * recorded; depth as solved above). The arm's fixed lengths can move the
+   * drawn hand a little away from there; touches need the recorded place.
+   */
+  seen: { wrist: Vec3; hand: Vec3[] | null };
 }
 
 export interface Head {
@@ -34,6 +40,10 @@ export interface Head {
   /** Unit axes of the head: to the viewer's right, up, forward (out of the face). */
   axes: [Vec3, Vec3, Vec3];
   radii: Vec3;
+  /** The face outline's box as seen in the picture (x, y only): centre and half sizes. */
+  box: { center: [number, number]; half: [number, number] };
+  /** Eyes (their middle) and mouth as seen in the picture, and the distance between the eyes. */
+  features: { eyes: [number, number]; mouth: [number, number]; eyeDistance: number };
 }
 
 export interface Figure {
@@ -73,8 +83,14 @@ export function placeBone(from: Vec3, seen: Vec3, len: number): Vec3 {
   const flat = Math.hypot(dx, dy);
   if (flat >= len) return [from[0] + (dx / flat) * len, from[1] + (dy / flat) * len, from[2]];
   const depth = Math.sqrt(len * len - flat * flat);
-  const towardsViewer = dz > -0.35 * len;
-  return [from[0] + dx, from[1] + dy, from[2] + (towardsViewer ? depth : -depth)];
+  // Towards the viewer (+1) or away (-1), changing gradually rather than all
+  // at once: a hard switch would make the hand jump from front to back when the
+  // recorded depth wavers around the threshold.
+  // The bone is then rescaled to its true length.
+  const towardsViewer = Math.tanh((dz + 0.35 * len) / (0.1 * len));
+  const z = towardsViewer * depth;
+  const k = len / (Math.hypot(dx, dy, z) || 1);
+  return [from[0] + dx * k, from[1] + dy * k, from[2] + z * k];
 }
 
 /** Hand points relative to the wrist, in scene axes, or null if not tracked. */
@@ -102,12 +118,24 @@ function solveArm(pose: Pose, layout: DemoLayout, rig: Rig, side: 'left' | 'righ
   const seenElbow = toScene(point(pose, b + el));
   const elbow = finite(seenElbow) ? placeBone(shoulder, seenElbow, rig.upperArm) : rest(shoulder, rig.upperArm);
 
-  // The hand's own wrist point is more precise than the body tracker's.
+  // The hand's own wrist point is more precise than the body tracker's in the
+  // picture. But the hand tracker's depth is only relative to the hand itself
+  // (its wrist is always at depth 0), so whether the hand is in front of the
+  // elbow or behind it comes from the body tracker.
   const hand = handOf(pose, handStart);
-  const seenWrist = hand ? toScene(point(pose, handStart)) : toScene(point(pose, b + wr));
+  const bodyWrist = toScene(point(pose, b + wr));
+  const handWrist = toScene(point(pose, handStart));
+  const seenWrist: Vec3 = hand ? [handWrist[0], handWrist[1], Number.isFinite(bodyWrist[2]) ? bodyWrist[2] : elbow[2]] : bodyWrist;
   const wrist = finite(seenWrist) ? placeBone(elbow, seenWrist, rig.forearm) : rest(elbow, rig.forearm);
 
-  return { shoulder, elbow, wrist, hand: hand ? hand.map((p) => add(wrist, p)) : null };
+  const seen: Vec3 = finite(seenWrist) ? [seenWrist[0], seenWrist[1], wrist[2]] : wrist;
+  return {
+    shoulder,
+    elbow,
+    wrist,
+    hand: hand ? hand.map((p) => add(wrist, p)) : null,
+    seen: { wrist: seen, hand: hand ? hand.map((p) => add(seen, p)) : null },
+  };
 }
 
 function centroid(pose: Pose, [from, to]: [number, number]): Vec3 | null {
@@ -143,10 +171,22 @@ function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3): He
   const radii: Vec3 = [rig.faceWidth * 0.55, rig.faceHeight * 0.6, rig.faceWidth * 0.62];
   const center = add(add(oval, scale(forward, -radii[2] * 0.55)), scale(up, radii[1] * 0.08));
 
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = layout.faceOval[0]; i < layout.faceOval[1]; i++) {
+    if (!visible(pose, i)) continue;
+    const [x, y] = toScene(point(pose, i));
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
   return {
     center,
     axes: [across, up, forward],
     radii,
+    box: { center: [(minX + maxX) / 2, (minY + maxY) / 2], half: [Math.max(1e-3, (maxX - minX) / 2), Math.max(1e-3, (maxY - minY) / 2)] },
+    features: {
+      eyes: [(eyeA[0] + eyeB[0]) / 2, (eyeA[1] + eyeB[1]) / 2],
+      mouth: [lips[0], lips[1]],
+      eyeDistance: Math.max(1e-3, Math.hypot(eyeB[0] - eyeA[0], eyeB[1] - eyeA[1])),
+    },
   };
 }
 
@@ -169,10 +209,11 @@ export function solveFigure(pose: Pose, layout: DemoLayout, rig: Rig): Figure {
 
 /**
  * Prepares a recording for playback: short tracking gaps of the hands are
- * filled with the last seen hand, and each hand is rescaled to the figure's
- * hand size (the same for every recording).
+ * filled with the last seen hand. (Hands keep the size they had in the
+ * picture: where they are relative to the face matters for signs that touch
+ * it, and the 3D model has its own hand size.)
  */
-export function prepareFrames(frames: Pose[], layout: DemoLayout, rig: Rig): Pose[] {
+export function prepareFrames(frames: Pose[], layout: DemoLayout): Pose[] {
   const out = frames.map((f) => f.slice());
   for (const [from, to] of [layout.leftHand, layout.rightHand]) {
     let last = -1;
@@ -183,24 +224,6 @@ export function prepareFrames(frames: Pose[], layout: DemoLayout, rig: Rig): Pos
       }
       last = i;
     });
-    const sizes: number[] = [];
-    for (const f of out) {
-      if (!visible(f, from) || !visible(f, from + 9)) continue;
-      const w = point(f, from);
-      const m = point(f, from + 9);
-      sizes.push(Math.hypot(m[0] - w[0], m[1] - w[1], m[2] - w[2]));
-    }
-    if (!sizes.length) continue;
-    sizes.sort((a, b) => a - b);
-    const k = rig.hand / Math.max(1e-3, sizes[Math.floor(sizes.length / 2)]!);
-    for (const f of out) {
-      if (!visible(f, from)) continue;
-      const w = point(f, from);
-      for (let i = from + 1; i < to; i++) {
-        const p = point(f, i);
-        setPoint(f, i, [w[0] + (p[0] - w[0]) * k, w[1] + (p[1] - w[1]) * k, w[2] + (p[2] - w[2]) * k]);
-      }
-    }
   }
   return smoothFrames(out);
 }

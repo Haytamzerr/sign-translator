@@ -353,31 +353,57 @@ Only the largest really detected hand, held still and raised (wrist in the upper
 
 [`src/core/learn/demos.ts`, line 123](../src/core/learn/demos.ts#L123)
 
-Each of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 159 points per frame (x, y and depth) in 16-bit integers.
+Each of the 250 signs is the average of up to 20 real recordings that the trained model recognizes, aligned in time with DTW first (DTW Barycenter Averaging), stored as 159 points per frame (x, y and depth) in 16-bit integers.
+
+> **In class:** Averaging removes each signer's tracking noise and missing frames; aligning in time first keeps a fast and a slow signer from blurring each other.
 
 ### A body with fixed bone lengths
 
-[`src/core/learn/figure.ts`, line 69](../src/core/learn/figure.ts#L69)
+[`src/core/learn/figure.ts`, line 79](../src/core/learn/figure.ts#L79)
 
 The camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).
 
 > **In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera).
 
-### Moving a 3D human with the recordings
+### Hands that touch the face
 
-[`src/components/avatar.ts`, line 191](../src/components/avatar.ts#L191)
+[`src/components/signerRig.ts`, line 497](../src/components/signerRig.ts#L497)
 
-The signer is a sculpted human model with a skeleton (MakeHuman, CC0). For each bone, the smallest rotation that makes it point like the matching segment of the recording, starting from its parent bone: arms, hand, every finger joint, head.
+The picture shows well where a hand is in front of the face, not how far in front. So the hand point nearest the face is put on the model's face at the same place, measured from the eyes (in eye distances) and down to the mouth: a sign at the chin touches the chin.
 
-> **In class:** Retargeting: transferring motion recorded on one body to another body with different proportions, by copying directions instead of positions.
+> **In class:** Contact constraints: animation systems pin hands and feet to the places they touch, so differences in body proportions do not leave a gap.
 
-### Fingers a real hand can make
+### Never through the body
 
-[`src/components/avatar.ts`, line 275](../src/components/avatar.ts#L275)
+[`src/components/signerRig.ts`, line 177](../src/components/signerRig.ts#L177)
 
-Tracking depth for fingers is noisy. The knuckles bend -25 to 95 degrees and spread at most 22; the two other joints are hinges that bend only towards the palm. Each joint then glides to its new rotation (45 ms), so one noisy frame cannot snap a finger.
+The torso is measured from the model's own surface (a cross-section every 2 cm) and the head as a rounded box. A hand point inside is moved out through the front, along a line from behind the body; deeper points count more.
 
-> **In class:** Joint limits are how animation systems keep a skeleton anatomically possible.
+> **In class:** Collision volumes: simple shapes standing in for a detailed body, so testing a point is a few multiplications.
+
+### Arms by inverse kinematics
+
+[`src/components/signerRig.ts`, line 603](../src/components/signerRig.ts#L603)
+
+With the shoulder and wrist known and two fixed bone lengths, the law of cosines gives where the elbow is along the shoulder-wrist line and how far off it: the elbow is on a circle. The recording says roughly where on it; if the arm would pass through the body there, the elbow turns along the circle until it does not.
+
+> **In class:** Two-bone IK with a pole vector: the standard way games place arms and legs.
+
+### Wrist and fingers a real hand can make
+
+[`src/components/signerRig.ts`, line 774](../src/components/signerRig.ts#L774)
+
+The hand's turn relative to the forearm is split into a twist along the forearm (up to 100 degrees, mostly shown by the forearm, as its two bones cross) and a bend (70 towards the palm, 60 back, 25 sideways). Knuckles bend -25 to 95 degrees; the two other finger joints are hinges.
+
+> **In class:** Swing-twist decomposition and joint limits keep a skeleton anatomically possible.
+
+### Smooth like a body
+
+[`src/components/signerRig.ts`, line 224](../src/components/signerRig.ts#L224)
+
+Each wrist target moves like a mass on a critically damped spring: it speeds up and slows down smoothly, never overshoots, about 50 ms behind. Each joint then glides to its rotation; the chest and head are slower than the fingers.
+
+> **In class:** Second-order smoothing: acceleration stays bounded, which is what makes motion look natural rather than mechanical.
 
 ### The 26 letters, defined exactly
 

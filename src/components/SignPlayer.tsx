@@ -38,7 +38,7 @@ export function buildTimeline(clips: Clip[], neutral: Pose, layout: DemoLayout, 
   const keys: Key[] = [];
   clips.forEach((clip, ci) => {
     if (clip.kind === 'sign') {
-      const frames = prepareFrames(clip.frames, layout, rig);
+      const frames = prepareFrames(clip.frames, layout);
       frames.forEach((pose, fi) => keys.push({ pose, blend: fi === 0 ? 240 : FRAME_MS, hold: 0, clip: ci, letter: false }));
       const last = keys[keys.length - 1];
       if (last) last.hold = PAUSE_BETWEEN_CLIPS_MS;
