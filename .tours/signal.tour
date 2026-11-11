@@ -277,25 +277,43 @@
       "file": "src/core/learn/demos.ts",
       "line": 123,
       "title": "Recorded demonstrations",
-      "description": "**9. Learn and Phrase to signs**\n\nEach of the 250 signs is the clearest real recording in the training data (picked by the trained model itself), stored as 159 points per frame (x, y and depth) in 16-bit integers."
+      "description": "**9. Learn and Phrase to signs**\n\nEach of the 250 signs is the average of up to 20 real recordings that the trained model recognizes, aligned in time with DTW first (DTW Barycenter Averaging), stored as 159 points per frame (x, y and depth) in 16-bit integers.\n\n**In class:** Averaging removes each signer's tracking noise and missing frames; aligning in time first keeps a fast and a slow signer from blurring each other."
     },
     {
       "file": "src/core/learn/figure.ts",
-      "line": 69,
+      "line": 79,
       "title": "A body with fixed bone lengths",
       "description": "**9. Learn and Phrase to signs**\n\nThe camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).\n\n**In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera)."
     },
     {
-      "file": "src/components/avatar.ts",
-      "line": 191,
-      "title": "Moving a 3D human with the recordings",
-      "description": "**9. Learn and Phrase to signs**\n\nThe signer is a sculpted human model with a skeleton (MakeHuman, CC0). For each bone, the smallest rotation that makes it point like the matching segment of the recording, starting from its parent bone: arms, hand, every finger joint, head.\n\n**In class:** Retargeting: transferring motion recorded on one body to another body with different proportions, by copying directions instead of positions."
+      "file": "src/components/signerRig.ts",
+      "line": 497,
+      "title": "Hands that touch the face",
+      "description": "**9. Learn and Phrase to signs**\n\nThe picture shows well where a hand is in front of the face, not how far in front. So the hand point nearest the face is put on the model's face at the same place, measured from the eyes (in eye distances) and down to the mouth: a sign at the chin touches the chin.\n\n**In class:** Contact constraints: animation systems pin hands and feet to the places they touch, so differences in body proportions do not leave a gap."
     },
     {
-      "file": "src/components/avatar.ts",
-      "line": 275,
-      "title": "Fingers a real hand can make",
-      "description": "**9. Learn and Phrase to signs**\n\nTracking depth for fingers is noisy. The knuckles bend -25 to 95 degrees and spread at most 22; the two other joints are hinges that bend only towards the palm. Each joint then glides to its new rotation (45 ms), so one noisy frame cannot snap a finger.\n\n**In class:** Joint limits are how animation systems keep a skeleton anatomically possible."
+      "file": "src/components/signerRig.ts",
+      "line": 177,
+      "title": "Never through the body",
+      "description": "**9. Learn and Phrase to signs**\n\nThe torso is measured from the model's own surface (a cross-section every 2 cm) and the head as a rounded box. A hand point inside is moved out through the front, along a line from behind the body; deeper points count more.\n\n**In class:** Collision volumes: simple shapes standing in for a detailed body, so testing a point is a few multiplications."
+    },
+    {
+      "file": "src/components/signerRig.ts",
+      "line": 603,
+      "title": "Arms by inverse kinematics",
+      "description": "**9. Learn and Phrase to signs**\n\nWith the shoulder and wrist known and two fixed bone lengths, the law of cosines gives where the elbow is along the shoulder-wrist line and how far off it: the elbow is on a circle. The recording says roughly where on it; if the arm would pass through the body there, the elbow turns along the circle until it does not.\n\n**In class:** Two-bone IK with a pole vector: the standard way games place arms and legs."
+    },
+    {
+      "file": "src/components/signerRig.ts",
+      "line": 774,
+      "title": "Wrist and fingers a real hand can make",
+      "description": "**9. Learn and Phrase to signs**\n\nThe hand's turn relative to the forearm is split into a twist along the forearm (up to 100 degrees, mostly shown by the forearm, as its two bones cross) and a bend (70 towards the palm, 60 back, 25 sideways). Knuckles bend -25 to 95 degrees; the two other finger joints are hinges.\n\n**In class:** Swing-twist decomposition and joint limits keep a skeleton anatomically possible."
+    },
+    {
+      "file": "src/components/signerRig.ts",
+      "line": 224,
+      "title": "Smooth like a body",
+      "description": "**9. Learn and Phrase to signs**\n\nEach wrist target moves like a mass on a critically damped spring: it speeds up and slows down smoothly, never overshoots, about 50 ms behind. Each joint then glides to its rotation; the chest and head are slower than the fingers.\n\n**In class:** Second-order smoothing: acceleration stays bounded, which is what makes motion look natural rather than mechanical."
     },
     {
       "file": "src/core/learn/handshapes.ts",

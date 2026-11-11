@@ -151,10 +151,11 @@ describe('3D figure', () => {
     expect(len(fig.left.elbow, fig.left.wrist)).toBeCloseTo(rig.forearm, 4);
   });
 
-  it('gives every recording the same hand size', () => {
-    const frame = new Float32Array(DEMO_POINTS * 3).fill(NaN);
-    for (let i = 0; i < 21; i++) setPoint(frame, i, [i * 0.05, 0, 0]); // knuckle 9 at 0.45 from the wrist
-    const [out] = prepareFrames([frame], LAYOUT, rig);
-    expect(Math.hypot(out![27]!, out![28]!, out![29]!)).toBeCloseTo(rig.hand, 4);
+  it('fills short gaps in hand tracking', () => {
+    const seen = new Float32Array(DEMO_POINTS * 3).fill(NaN);
+    for (let i = 0; i < 21; i++) setPoint(seen, i, [i * 0.05, 0, 0]);
+    const gap = new Float32Array(DEMO_POINTS * 3).fill(NaN);
+    const out = prepareFrames([seen, gap, gap, seen], LAYOUT);
+    expect(out[1]![27]).toBeCloseTo(0.45, 4); // knuckle 9 kept from the frame before
   });
 });
