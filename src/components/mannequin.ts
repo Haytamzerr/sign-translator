@@ -101,7 +101,7 @@ export class Mannequin {
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.setClearColor(0x000000, 0);
 

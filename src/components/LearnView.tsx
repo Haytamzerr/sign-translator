@@ -142,8 +142,12 @@ export function LearnView({
     [engine, t],
   );
 
-  const clip = current ? clipFor(current, data) : null;
-  const clips = useMemo(() => (clip ? [clip] : []), [clip]);
+  // The same clip object while the word stays the same: the camera makes this
+  // view redraw many times per second, and a new clip would restart the animation.
+  const clips = useMemo(() => {
+    const clip = current ? clipFor(current, data) : null;
+    return clip ? [clip] : [];
+  }, [current, data]);
   const learned = (ids: string[]) => ids.filter((id) => (progress[id] ?? 0) > 0).length;
   const topicItems = (id: string) =>
     id === 'alphabet' ? ALPHABET : (TOPICS.find((x) => x.id === id)?.signs ?? []).filter((s) => data.demos?.has(s));
