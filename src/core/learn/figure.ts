@@ -236,6 +236,36 @@ export function prepareFrames(frames: Pose[], layout: DemoLayout, rig: Rig): Pos
       }
     }
   }
+  return smoothFrames(out);
+}
+
+/**
+ * Removes the tracker's trembling from a recording: every coordinate becomes a
+ * weighted average of itself and its neighbours in time (a Gaussian, centred,
+ * so nothing is delayed: the whole recording is known in advance). Points not
+ * visible are left out of the average and stay not visible.
+ */
+export function smoothFrames(frames: Pose[], sigma = 1.4): Pose[] {
+  const radius = Math.ceil(sigma * 2.5);
+  const weights = Array.from({ length: 2 * radius + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
+  const n = frames.length;
+  const out = frames.map((f) => f.slice());
+  const size = frames[0]?.length ?? 0;
+  for (let c = 0; c < size; c++) {
+    for (let t = 0; t < n; t++) {
+      if (Number.isNaN(frames[t]![c]!)) continue;
+      let sum = 0;
+      let total = 0;
+      for (let d = -radius; d <= radius; d++) {
+        const v = frames[t + d]?.[c];
+        if (v === undefined || Number.isNaN(v)) continue;
+        const w = weights[d + radius]!;
+        sum += v * w;
+        total += w;
+      }
+      out[t]![c] = sum / total;
+    }
+  }
   return out;
 }
 

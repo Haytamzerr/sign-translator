@@ -61,6 +61,29 @@ function lerpPose(a: Pose, b: Pose, t: number, out: Pose): Pose {
   return out;
 }
 
+/**
+ * Curved interpolation between recorded frames b and c (Catmull-Rom spline),
+ * using the frames before (a) and after (d) to keep the speed continuous.
+ * Straight-line interpolation makes visible corners at every recorded frame;
+ * the curve passes through the same points without them.
+ */
+function splinePose(a: Pose, b: Pose, c: Pose, d: Pose, t: number, out: Pose): Pose {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  for (let i = 0; i < out.length; i++) {
+    const p1 = b[i]!;
+    const p2 = c[i]!;
+    if (Number.isNaN(p1) || Number.isNaN(p2)) {
+      out[i] = Number.isNaN(p2) ? (t < 0.5 ? p1 : NaN) : p2;
+      continue;
+    }
+    const p0 = Number.isNaN(a[i]!) ? p1 : a[i]!;
+    const p3 = Number.isNaN(d[i]!) ? p2 : d[i]!;
+    out[i] = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 - 3 * p2 + p3) * t3);
+  }
+  return out;
+}
+
 function readPalette(el: HTMLElement): MannequinPalette {
   const css = getComputedStyle(el);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
@@ -194,9 +217,15 @@ export function SignPlayer({
         const cur = keys[k]!;
         const prev = k > 0 ? keys[k - 1]!.pose : neutral;
         const t = cur.blend > 0 ? Math.min(1, elapsed / cur.blend) : 1;
-        // Ease in and out for letters and transitions; linear between recorded frames.
-        const eased = cur.blend > FRAME_MS ? t * t * (3 - 2 * t) : t;
-        pose = lerpPose(prev, cur.pose, eased, scratch);
+        if (cur.blend > FRAME_MS || k === 0) {
+          // Transitions and letters: ease in and out.
+          pose = lerpPose(prev, cur.pose, t * t * (3 - 2 * t), scratch);
+        } else {
+          // Between recorded frames of the same sign: a smooth curve.
+          const before = k > 1 && keys[k - 2]!.clip === cur.clip ? keys[k - 2]!.pose : prev;
+          const after = k + 1 < keys.length && keys[k + 1]!.clip === cur.clip && keys[k + 1]!.blend <= FRAME_MS ? keys[k + 1]!.pose : cur.pose;
+          pose = splinePose(before, prev, cur.pose, after, t, scratch);
+        }
         closeUp = cur.letter;
         if (cur.clip !== clip) {
           clip = cur.clip;
