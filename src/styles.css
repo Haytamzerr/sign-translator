@@ -1195,24 +1195,9 @@ p {
 /* ---------- Main navigation ---------- */
 
 :root {
-  /* 3D figure: a pale matte mannequin, hands in the two hand colours. */
-  --mannequin-body: #9aa5b9;
-  --mannequin-joint: #7c879d;
-  --mannequin-head: #a9b3c5;
-  --mannequin-feature: #1d2330;
-  --mannequin-right: #f0b03e;
-  --mannequin-left: #4fbfd8;
-  --mannequin-inset: #222a39;
 }
 
 :root[data-theme='light'] {
-  --mannequin-body: #aeb7c8;
-  --mannequin-joint: #8f9ab0;
-  --mannequin-head: #bcc4d3;
-  --mannequin-feature: #2b3344;
-  --mannequin-right: #e9a228;
-  --mannequin-left: #2fa9c6;
-  --mannequin-inset: #ffffff;
 }
 
 .views {
@@ -1318,7 +1303,7 @@ p {
   background:
     radial-gradient(ellipse 55% 50% at 50% 40%, rgba(64, 170, 220, 0.32), transparent 70%),
     linear-gradient(180deg, #0f2236 0%, #0a1524 100%);
-  --mannequin-inset: #0d1a2a;
+  --avatar-inset: #0d1a2a;
 }
 
 .player-canvas {

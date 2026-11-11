@@ -232,7 +232,8 @@ export class Avatar {
     if (info) {
       const target = this.v(hand[9]!).sub(this.v(hand[0]!)).normalize();
       const across = this.v(hand[5]!).sub(this.v(hand[17]!));
-      const restAcross = this.restVector(`finger2-1_${side}`, `finger5-1_${side}`);
+      // Little-finger knuckle to index knuckle, the same way as `across` above.
+      const restAcross = this.restVector(`finger5-1_${side}`, `finger2-1_${side}`);
       const parentQ = this.parentWorld(wrist);
       const restAim = this.vc.copy(info.restDir).applyQuaternion(parentQ);
       const q1 = new THREE.Quaternion().setFromUnitVectors(restAim, target);
@@ -280,7 +281,7 @@ export class Avatar {
     const along = wrist.restDir.clone().applyQuaternion(wristQ);
     const across = this.restVector(`finger2-1_${side}`, `finger5-1_${side}`).applyQuaternion(wristQ);
     const palm = new THREE.Vector3().crossVectors(along, across).normalize();
-    if (side === 'R') palm.negate();
+    if (side === 'L') palm.negate();
     const deg = THREE.MathUtils.degToRad;
     const LIMITS: [number, number, number][] = [[-25, 95, 22], [-8, 110, 0], [-10, 90, 0]];
 
@@ -370,41 +371,12 @@ export class Avatar {
       prev.slerp(bone.quaternion, k);
       bone.quaternion.copy(prev);
     }
-    this.debugHand(fig);
     const hand = this.bones.get('finger3-1_R')?.bone;
     this.handVisible = !!fig.right.hand && !!hand;
     if (hand) {
       this.root.updateMatrixWorld(true);
       hand.getWorldPosition(this.handFocus);
     }
-  }
-
-  private dbg: THREE.Mesh[] = [];
-  private debugHand(fig: Figure): void {
-    const data = fig.right.hand;
-    if (!(window as unknown as { __handDebug?: boolean }).__handDebug || !data) return;
-    if (!this.dbg.length) {
-      const g = new THREE.SphereGeometry(0.005, 8, 6);
-      const mat = new THREE.MeshBasicMaterial({ color: 0xff3355, depthTest: false });
-      for (let i = 0; i < 21; i++) { const m = new THREE.Mesh(g, mat); m.renderOrder = 10; this.dbg.push(m); this.root.add(m); }
-    }
-    this.root.updateMatrixWorld(true);
-    const w = new THREE.Vector3(); this.bones.get('wrist_R')!.bone.getWorldPosition(w);
-    const m3 = new THREE.Vector3(); this.bones.get('finger3-1_R')!.bone.getWorldPosition(m3);
-    const k = w.distanceTo(m3) / this.v(data[9]!).distanceTo(this.v(data[0]!));
-    const inv = this.root.matrixWorld.clone().invert();
-    w.applyMatrix4(inv);
-    data.forEach((p, i) => this.dbg[i]!.position.copy(this.v(p).sub(this.v(data[0]!)).multiplyScalar(k).add(w)));
-    const err: Record<string, number> = {};
-    for (const [f, a, b] of FINGERS) {
-      const bone = this.bones.get(`${f}_R`)!;
-      const h = new THREE.Vector3(); bone.bone.getWorldPosition(h);
-      const dir = bone.restDir.clone().applyQuaternion(bone.bone.getWorldQuaternion(new THREE.Quaternion()));
-      const want = this.v(data[b]!).sub(this.v(data[a]!)).normalize();
-      if (this.root.scale.x < 0) want.x = -want.x;
-      err[f] = Math.round(THREE.MathUtils.radToDeg(dir.angleTo(want)));
-    }
-    (window as unknown as { __handErr?: unknown }).__handErr = err;
   }
 
   render(mirror: boolean, closeUp: boolean): { x: number; y: number; size: number } | null {

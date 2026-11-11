@@ -41,7 +41,7 @@ const LETTERS: Record<string, Spec> = {
   D: { fingers: [STRAIGHT, [55, 70, 40, 0], [55, 70, 40, 0], [55, 70, 40, 0]], thumb: [35, 45, 30, 25] },
   E: { fingers: [[15, 100, 80, 0], [15, 100, 80, 0], [15, 100, 80, 0], [15, 100, 80, 0]], thumb: [25, 30, 60, 40] },
   F: { fingers: [[50, 55, 30, 0], [0, 0, 0, -2], [0, 0, 0, 4], [0, 0, 0, 10]], thumb: [35, 40, 20, 20] },
-  G: { fingers: [STRAIGHT, CLOSED, CLOSED, CLOSED], thumb: [45, 5, 0, 0], hold: 'sideways' },
+  G: { fingers: [STRAIGHT, CLOSED, CLOSED, CLOSED], thumb: [14, 12, 0, 0], hold: 'sideways' },
   H: { fingers: [[0, 0, 0, -3], [0, 0, 0, 2], CLOSED, CLOSED], thumb: THUMB_ACROSS, hold: 'sideways' },
   I: { fingers: [CLOSED, CLOSED, CLOSED, STRAIGHT], thumb: THUMB_ACROSS },
   J: { fingers: [CLOSED, CLOSED, CLOSED, STRAIGHT], thumb: THUMB_ACROSS },
@@ -51,7 +51,7 @@ const LETTERS: Record<string, Spec> = {
   N: { fingers: [[80, 95, 55, 0], [80, 95, 55, 0], CLOSED, CLOSED], thumb: [15, 25, 45, 30] },
   O: { fingers: [[45, 60, 40, -2], [45, 62, 40, 0], [45, 64, 40, 2], [45, 66, 40, 4]], thumb: [40, 45, 25, 25], hold: 'side' },
   P: { fingers: [STRAIGHT, [40, 0, 0, 0], CLOSED, CLOSED], thumb: [20, 25, 0, 0], hold: 'down' },
-  Q: { fingers: [STRAIGHT, CLOSED, CLOSED, CLOSED], thumb: [45, 5, 0, 0], hold: 'down' },
+  Q: { fingers: [STRAIGHT, CLOSED, CLOSED, CLOSED], thumb: [14, 12, 0, 0], hold: 'down' },
   R: { fingers: [[0, 0, 0, -9], [10, 0, 0, 9], CLOSED, CLOSED], thumb: THUMB_ACROSS },
   S: { fingers: [CLOSED, CLOSED, CLOSED, CLOSED], thumb: [30, 30, 50, 30] },
   T: { fingers: [[70, 90, 45, 0], CLOSED, CLOSED, CLOSED], thumb: [20, 25, 25, 10] },
@@ -104,7 +104,8 @@ function holdRotation(hold: LetterHold): (v: V) => V {
     case 'side': // turned a quarter towards the signer's left, so the curve of C and O is seen from the side
       return (v) => rotate(v, [0, 1, 0], rad(-65));
     case 'sideways': // fingers pointing to the signer's left, palm towards the signer
-      return (v) => rotate(rotate(v, [0, 1, 0], rad(-80)), [0, 0, 1], rad(-80));
+      // Turn the palm to face the signer, then lay the fingers flat towards the signer's left.
+      return (v) => rotate(rotate(v, [0, 1, 0], rad(180)), [0, 0, 1], rad(90));
     case 'down': // fingers pointing down and forwards
       return (v) => rotate(v, [1, 0, 0], rad(130));
     default:
