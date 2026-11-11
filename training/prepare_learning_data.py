@@ -170,14 +170,25 @@ def run_demos():
         pts[..., 2] = np.clip(pts[..., 2], -2.0, 2.0)
         return pts
 
-    # Mirroring: body points swap sides; face eye and brow groups swap.
+    # Mirroring: every point takes the place of its mirror image. Body points
+    # swap sides; eye and brow groups swap; the face outline and the lips are
+    # rings, and each point swaps with the one at the same place on the other
+    # side (the outline starts at the top of the forehead, the lips at a corner).
+    # Without this, averaging mirrored and unmirrored recordings would squash
+    # the face to a vertical line.
     body_swap = [0, 2, 1, 4, 3, 6, 5, 8, 7]
-    fl = len(FACE_OVAL) + len(LIPS)
+    no, nl = len(FACE_OVAL), len(LIPS)
+    fl = no + nl
     eyes = list(range(fl, fl + 16)); eyes_r = list(range(fl + 16, fl + 32))
     brows = list(range(fl + 32, fl + 42)); brows_r = list(range(fl + 42, fl + 52))
     face_perm = list(range(len(FACE)))
     for a_, b_ in list(zip(eyes, eyes_r)) + list(zip(brows, brows_r)):
         face_perm[a_], face_perm[b_] = b_, a_
+    for i in range(no):
+        face_perm[i] = (no - i) % no
+    half = nl // 2  # LIPS: corner, lower lip to the other corner, upper lip back
+    for i in range(nl):
+        face_perm[no + i] = no + (half - i if i <= half else 3 * half - i)
     PERM = list(range(21, 42)) + list(range(0, 21)) + [42 + i for i in body_swap] + [face0 + i for i in face_perm]
 
     def mirror(pts):
