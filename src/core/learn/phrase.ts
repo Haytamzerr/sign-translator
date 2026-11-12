@@ -3,7 +3,7 @@
  *
  * Each word (or group of words such as "thank you" or "ice cream") is matched
  * against the 250 built-in signs, in English, French or Arabic, and against
- * the motion-captured signs (English words). A word with no
+ * the English words that have a sign video. A word with no
  * sign is spelled with the manual alphabet, letter by letter, which is also
  * what signers do for names.
  */
@@ -50,11 +50,12 @@ const ALIASES: Record<string, string[]> = {
 };
 
 /**
- * Words ASL normally leaves out: articles and the verb "to be" (ASL says
- * "ME HAPPY", not "I am happy"). They are shown as skipped, not spelled.
+ * Words ASL normally leaves out: articles, the verb "to be" (ASL says
+ * "ME HAPPY", not "I am happy"), "to" and "of". They are shown as skipped,
+ * not spelled.
  */
 const OMITTED = new Set([
-  'a', 'an', 'the', 'is', 'am', 'are', 'was', 'were', 'be', 'been',
+  'a', 'an', 'the', 'is', 'am', 'are', 'was', 'were', 'be', 'been', 'to', 'of',
   'le', 'la', 'les', "l'", 'un', 'une', 'des', 'du', 'est', 'suis', 'es', 'sont',
   'ال',
 ]);
@@ -72,11 +73,14 @@ export function normalizeWord(word: string): string {
 
 let index: Map<string, string> | null = null;
 let longest = 1;
-/** Extra English words with a sign (motion-captured signs), added once loaded. */
+/** Extra English words with a sign video, added once the videos are loaded. */
 let extraWords: string[] = [];
+/** Which built-in signs can be shown (all of them until the videos are loaded). */
+let canShow: (label: string) => boolean = () => true;
 
-export function addPhraseWords(words: string[]): void {
+export function addPhraseWords(words: string[], hasSign?: (label: string) => boolean): void {
   extraWords = words;
+  if (hasSign) canShow = hasSign;
   index = null;
 }
 
@@ -90,10 +94,11 @@ function buildIndex(): Map<string, string> {
     longest = Math.max(longest, key.split(' ').length);
   };
   for (const [label, words] of Object.entries(WORDS)) {
+    if (!canShow(label)) continue;
     add(label, label);
     for (const w of words) for (const part of w.split('/')) add(part, label);
   }
-  for (const [label, extra] of Object.entries(ALIASES)) for (const a of extra) add(a, label);
+  for (const [label, extra] of Object.entries(ALIASES)) if (canShow(label)) for (const a of extra) add(a, label);
   for (const w of extraWords) add(w, w);
   return map;
 }

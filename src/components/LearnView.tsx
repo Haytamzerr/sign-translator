@@ -1,5 +1,5 @@
 /**
- * Learn: lessons by topic. Watch an animated demonstration, then make the sign
+ * Learn: lessons by topic. Watch a native signer's video, then make the sign
  * in front of the camera; the built-in model checks it and gives 1 to 3 stars.
  * Quiz mode hides the demonstration until you ask for it.
  */
@@ -13,9 +13,9 @@ import { loadProgress, recordScore, saveProgress, scoreAttempt } from '../state/
 import type { Settings } from '../state/settings';
 import { Segmented, Toggle } from './controls';
 import { IconExternal, IconNext, IconPrev, IconReplay, IconStar } from './icons';
-import { SignPlayer } from './SignPlayer';
+import { SignVideoPlayer } from './SignVideoPlayer';
 import { Stage } from './Stage';
-import { clipFor, useLearningData, useMocap, videoLink } from './useLearningData';
+import { clipFor, useLearningData, videoLink } from './useLearningData';
 
 type Mode = 'learn' | 'quiz';
 interface Feedback {
@@ -75,9 +75,9 @@ export function LearnView({
   });
 
   const items = useMemo(() => {
-    if (topicId === 'alphabet') return ALPHABET.filter((l) => data.shapes?.[l]);
+    if (topicId === 'alphabet') return ALPHABET.filter((l) => data.videos?.has(l));
     const topic = TOPICS.find((x) => x.id === topicId);
-    return (topic?.signs ?? []).filter((s) => data.demos?.has(s));
+    return (topic?.signs ?? []).filter((s) => data.videos?.has(s));
   }, [topicId, data]);
 
   const current = mode === 'quiz' ? quiz.order[quiz.pos] : items[Math.min(index, items.length - 1)];
@@ -95,7 +95,8 @@ export function LearnView({
   useEffect(() => setFeedback(null), [current]);
 
   const label = (id: string) => (isLetter(id) ? id : translateAslLabel(id, lang));
-  const gloss = (id: string) => (isLetter(id) ? '' : (WORDS[id]?.[0] ?? id).toUpperCase());
+  // The name of the sign in the video, e.g. EAT for "food" (ASL has one sign for both).
+  const gloss = (id: string) => (isLetter(id) ? '' : (data.videos?.gloss(id) ?? ''));
 
   // Score an attempt, keep the best result, and move on in a quiz.
   const award = (stars: number, text: string) => {
@@ -142,20 +143,19 @@ export function LearnView({
     [engine, t],
   );
 
-  // The same clip object while the word stays the same: the camera makes this
-  // view redraw many times per second, and a new clip would restart the animation.
-  const mocap = useMocap(current ? [current] : [], data);
+  // The same clip list while the word stays the same: the camera makes this
+  // view redraw many times per second, and a new list would restart the video.
   const clips = useMemo(() => {
-    const clip = current && mocap.ready ? clipFor(current, data, mocap.clips) : null;
+    const clip = current ? clipFor(current, data) : null;
     return clip ? [clip] : [];
-  }, [current, data, mocap.ready, mocap.clips]);
+  }, [current, data]);
   const learned = (ids: string[]) => ids.filter((id) => (progress[id] ?? 0) > 0).length;
   const topicItems = (id: string) =>
-    id === 'alphabet' ? ALPHABET : (TOPICS.find((x) => x.id === id)?.signs ?? []).filter((s) => data.demos?.has(s));
+    (id === 'alphabet' ? ALPHABET : (TOPICS.find((x) => x.id === id)?.signs ?? [])).filter((s) => data.videos?.has(s));
   const quizDone = mode === 'quiz' && quiz.order.length > 0 && quiz.pos >= quiz.order.length;
   const showDemo = mode === 'learn' || quiz.revealed;
 
-  if (data.status !== 'ready' || !data.demos) {
+  if (data.status !== 'ready' || !data.videos) {
     return (
       <div className="view-message">
         {data.status === 'loading' ? (
@@ -228,18 +228,10 @@ export function LearnView({
                   <span className="learn-word-main">{label(current)}</span>
                   {gloss(current) && <span className="learn-word-gloss">{gloss(current)}</span>}
                 </div>
-                {showDemo && !mocap.ready ? (
-                  <div className="player">
-                    <div className="spinner" aria-hidden="true" />
-                  </div>
-                ) : showDemo ? (
-                  <SignPlayer
+                {showDemo ? (
+                  <SignVideoPlayer
                     clips={clips}
-                    neutral={data.demos.neutral}
-                    layout={data.demos.layout}
-                    rig={data.demos.rig}
-                    resetLabel={t('playerFront')}
-                    failedLabel={t('player3dMissing')}
+                    failedLabel={t('playerVideoMissing')}
                     speed={speed}
                     mirror={mirror}
                     loop
@@ -270,6 +262,7 @@ export function LearnView({
                     </a>
                   )}
                 </div>
+                <p className="video-credit">{t('videoCredit')}</p>
               </>
             ) : (
               <div className="player">

@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { LetterDecoder, LetterModel, type LetterModelData } from '../letters';
 import { TOPICS } from './categories';
-import { decodeDemos, neutralPose, setPoint, DEMO_POINTS, type DemoLayout, type Rig } from './demos';
-import { placeBone, prepareFrames, solveFigure, type Vec3 } from './figure';
-import { phraseToItems } from './phrase';
+import { decodeDemos, DEMO_POINTS, type DemoLayout } from './demos';
+import { addPhraseWords, phraseToItems } from './phrase';
+import { SignVideos, type SignVideoIndex } from './signVideos';
 
 const LABELS = 'public/models/asl/asl_labels.json';
 
@@ -111,51 +111,57 @@ describe('demo decoding', () => {
     expect(frames[0]).toHaveLength(perFrame);
     expect(Number.isNaN(frames[0]![0]!)).toBe(true);
     expect(frames[0]![2]).toBeCloseTo(0.5); // z of the first point
-    const neutral = neutralPose(demos.values(), LAYOUT);
-    expect(Number.isNaN(neutral[0]!)).toBe(true); // hands hidden in the neutral pose
-    expect(neutral[60 * 3]).toBeCloseTo(0.5); // face kept
   });
 });
 
-describe('3D figure', () => {
-  const rig: Rig = { upperArm: 0.8, forearm: 0.75, hand: 0.3, faceWidth: 0.5, faceHeight: 0.65, eyeSide: 1 };
-  const len = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+describe('sign videos', () => {
+  const videos = new SignVideos({
+    source: '',
+    license: '',
+    glosses: { '1': 'MOTHER', '2': 'LETTER-A', '3': 'LOVE' },
+    learn: { mom: '1' },
+    letters: { A: '2' },
+    words: { love: '3', 'good morning': '3' },
+  });
 
-  it('keeps bone lengths fixed, whatever the recording says', () => {
-    for (const seen of [[0.1, 0.2, 0], [2, 2, 0], [0.3, 0.3, -0.5], [0.05, 0.05, 0.3]] as Vec3[]) {
-      const end = placeBone([0, 0, 0], seen, 0.8);
-      expect(len([0, 0, 0], end)).toBeCloseTo(0.8, 5);
+  it('finds the clip of a built-in sign, a letter or a word', () => {
+    expect(videos.clipId('mom')).toBe('1');
+    expect(videos.clipId('A')).toBe('2');
+    expect(videos.clipId('Love')).toBe('3');
+    expect(videos.clipId('chin')).toBeNull();
+    expect(videos.gloss('mom')).toBe('MOTHER');
+  });
+
+  it('lets Phrase to signs use video words and spell signs without a video', () => {
+    addPhraseWords(videos.words(), (label) => videos.has(label));
+    try {
+      expect(phraseToItems('love chin')).toMatchObject([
+        { kind: 'sign', label: 'love' },
+        { kind: 'spell', letters: ['C', 'H', 'I', 'N'] },
+      ]);
+      expect(phraseToItems('Good morning mother')).toMatchObject([
+        { kind: 'sign', label: 'good morning' },
+        { kind: 'sign', label: 'mom' },
+      ]);
+    } finally {
+      addPhraseWords([], () => true);
     }
   });
+});
 
-  it('keeps what the picture shows and only solves depth', () => {
-    const end = placeBone([0, 0, 0], [0.3, -0.4, 0], 1);
-    expect(end[0]).toBeCloseTo(0.3);
-    expect(end[1]).toBeCloseTo(-0.4);
-    expect(end[2]).toBeGreaterThan(0); // towards the viewer by default
-    expect(placeBone([0, 0, 0], [0.3, -0.4, -0.9], 1)[2]).toBeLessThan(0); // clearly behind
+const VIDEO_INDEX = 'public/models/signs/index.json';
+
+describe.skipIf(!existsSync(VIDEO_INDEX))('installed sign videos', () => {
+  const index = JSON.parse(readFileSync(VIDEO_INDEX, 'utf8')) as SignVideoIndex;
+  const clips = [...Object.values(index.learn), ...Object.values(index.letters), ...Object.values(index.words)];
+
+  it('have a file for every clip they name', () => {
+    for (const id of new Set(clips)) expect(existsSync(`public/models/signs/${id}.mp4`), id).toBe(true);
   });
 
-  it('attaches the hand to the end of the forearm', () => {
-    const pose = new Float32Array(DEMO_POINTS * 3).fill(NaN);
-    const b = LAYOUT.body[0];
-    setPoint(pose, b + 1, [0.5, 0, 0]);
-    setPoint(pose, b + 2, [-0.5, 0, 0]);
-    setPoint(pose, b + 4, [-0.7, 0.6, -0.2]);
-    for (let i = 0; i < 21; i++) setPoint(pose, 21 + i, [-0.6 + i * 0.01, 0.2 - i * 0.02, -0.5]);
-    const fig = solveFigure(pose, LAYOUT, rig);
-    expect(len(fig.right.shoulder, fig.right.elbow)).toBeCloseTo(rig.upperArm, 4);
-    expect(len(fig.right.elbow, fig.right.wrist)).toBeCloseTo(rig.forearm, 4);
-    expect(fig.right.hand![0]).toEqual(fig.right.wrist);
-    expect(fig.left.hand).toBeNull(); // not tracked: a closed hand is drawn
-    expect(len(fig.left.elbow, fig.left.wrist)).toBeCloseTo(rig.forearm, 4);
-  });
-
-  it('fills short gaps in hand tracking', () => {
-    const seen = new Float32Array(DEMO_POINTS * 3).fill(NaN);
-    for (let i = 0; i < 21; i++) setPoint(seen, i, [i * 0.05, 0, 0]);
-    const gap = new Float32Array(DEMO_POINTS * 3).fill(NaN);
-    const out = prepareFrames([seen, gap, gap, seen], LAYOUT);
-    expect(out[1]![27]).toBeCloseTo(0.45, 4); // knuckle 9 kept from the frame before
+  it('cover the alphabet and almost every built-in sign', () => {
+    expect(Object.keys(index.letters)).toHaveLength(26);
+    expect(Object.keys(index.learn).length).toBeGreaterThanOrEqual(240);
+    for (const label of Object.keys(index.learn)) expect(TOPICS.some((t) => t.signs.includes(label)), label).toBe(true);
   });
 });
