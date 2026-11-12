@@ -209,21 +209,21 @@
     },
     {
       "file": "training/train_asl.py",
-      "line": 220,
+      "line": 242,
       "title": "Convolution block",
       "description": "**7. The built-in ASL neural network**\n\nDepthwise 1D convolution over time (kernel 17 frames): detects local motion patterns. Residual connection and LayerNorm make deep stacks trainable."
     },
     {
       "file": "training/train_asl.py",
-      "line": 233,
+      "line": 255,
       "title": "Attention block",
       "description": "**7. The built-in ASL neural network**\n\nSelf-attention: every frame looks at every other frame, so the network relates the beginning and end of a sign. Padding frames are masked out.\n\n**In class:** Convolution = local context, attention = global context. Same mix as in modern speech models (Conformer)."
     },
     {
       "file": "training/train_asl.py",
-      "line": 305,
+      "line": 344,
       "title": "Training loop",
-      "description": "**7. The built-in ASL neural network**\n\nAdamW optimizer, mixed precision on GPU, label smoothing, warm-up then cosine learning rate. Validation uses 2 signers never seen in training: 74.1% top-1, about 90% top-5."
+      "description": "**7. The built-in ASL neural network**\n\nAdamW optimizer, mixed precision on GPU, label smoothing, warm-up then cosine learning rate. Each hand is rotated and scaled on its own, short stretches of time are hidden, and the saved weights are a running average (EMA) of the training weights. Validation uses 2 signers never seen in training: 76.6% top-1, about 92% top-5."
     },
     {
       "file": "src/core/asl/features.ts",
@@ -281,7 +281,7 @@
     },
     {
       "file": "src/core/learn/figure.ts",
-      "line": 79,
+      "line": 81,
       "title": "A body with fixed bone lengths",
       "description": "**9. Learn and Phrase to signs**\n\nThe camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).\n\n**In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera)."
     },
@@ -299,13 +299,13 @@
     },
     {
       "file": "src/components/signerRig.ts",
-      "line": 603,
+      "line": 613,
       "title": "Arms by inverse kinematics",
       "description": "**9. Learn and Phrase to signs**\n\nWith the shoulder and wrist known and two fixed bone lengths, the law of cosines gives where the elbow is along the shoulder-wrist line and how far off it: the elbow is on a circle. The recording says roughly where on it; if the arm would pass through the body there, the elbow turns along the circle until it does not.\n\n**In class:** Two-bone IK with a pole vector: the standard way games place arms and legs."
     },
     {
       "file": "src/components/signerRig.ts",
-      "line": 774,
+      "line": 784,
       "title": "Wrist and fingers a real hand can make",
       "description": "**9. Learn and Phrase to signs**\n\nThe hand's turn relative to the forearm is split into a twist along the forearm (up to 100 degrees, mostly shown by the forearm, as its two bones cross) and a bend (70 towards the palm, 60 back, 25 sideways). Knuckles bend -25 to 95 degrees; the two other finger joints are hinges.\n\n**In class:** Swing-twist decomposition and joint limits keep a skeleton anatomically possible."
     },
@@ -323,7 +323,7 @@
     },
     {
       "file": "src/components/SignPlayer.tsx",
-      "line": 37,
+      "line": 39,
       "title": "Animation timeline",
       "description": "**9. Learn and Phrase to signs**\n\nSigns become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.\n\n**In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games."
     },
@@ -335,7 +335,7 @@
     },
     {
       "file": "src/core/learn/phrase.ts",
-      "line": 93,
+      "line": 102,
       "title": "Text to signs",
       "description": "**9. Learn and Phrase to signs**\n\nGreedy longest match against every way of writing each sign (English, French, Arabic, aliases), so \"thank you\" and \"ice cream\" become one sign. Articles and \"to be\" are left out, as in ASL; other words are fingerspelled.\n\n**In class:** Glossing: ASL has its own grammar, so a word-by-word mapping is only an approximation."
     },

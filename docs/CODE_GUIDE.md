@@ -273,13 +273,13 @@ Each training example is randomly mirrored, rotated, stretched, shifted, sped up
 
 ### Convolution block
 
-[`training/train_asl.py`, line 220](../training/train_asl.py#L220)
+[`training/train_asl.py`, line 242](../training/train_asl.py#L242)
 
 Depthwise 1D convolution over time (kernel 17 frames): detects local motion patterns. Residual connection and LayerNorm make deep stacks trainable.
 
 ### Attention block
 
-[`training/train_asl.py`, line 233](../training/train_asl.py#L233)
+[`training/train_asl.py`, line 255](../training/train_asl.py#L255)
 
 Self-attention: every frame looks at every other frame, so the network relates the beginning and end of a sign. Padding frames are masked out.
 
@@ -287,9 +287,9 @@ Self-attention: every frame looks at every other frame, so the network relates t
 
 ### Training loop
 
-[`training/train_asl.py`, line 305](../training/train_asl.py#L305)
+[`training/train_asl.py`, line 344](../training/train_asl.py#L344)
 
-AdamW optimizer, mixed precision on GPU, label smoothing, warm-up then cosine learning rate. Validation uses 2 signers never seen in training: 74.1% top-1, about 90% top-5.
+AdamW optimizer, mixed precision on GPU, label smoothing, warm-up then cosine learning rate. Each hand is rotated and scaled on its own, short stretches of time are hidden, and the saved weights are a running average (EMA) of the training weights. Validation uses 2 signers never seen in training: 76.6% top-1, about 92% top-5.
 
 ### Same features in TypeScript
 
@@ -359,7 +359,7 @@ Each of the 250 signs is the average of up to 20 real recordings that the traine
 
 ### A body with fixed bone lengths
 
-[`src/core/learn/figure.ts`, line 79](../src/core/learn/figure.ts#L79)
+[`src/core/learn/figure.ts`, line 81](../src/core/learn/figure.ts#L81)
 
 The camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).
 
@@ -383,7 +383,7 @@ The torso is measured from the model's own surface (a cross-section every 2 cm) 
 
 ### Arms by inverse kinematics
 
-[`src/components/signerRig.ts`, line 603](../src/components/signerRig.ts#L603)
+[`src/components/signerRig.ts`, line 613](../src/components/signerRig.ts#L613)
 
 With the shoulder and wrist known and two fixed bone lengths, the law of cosines gives where the elbow is along the shoulder-wrist line and how far off it: the elbow is on a circle. The recording says roughly where on it; if the arm would pass through the body there, the elbow turns along the circle until it does not.
 
@@ -391,7 +391,7 @@ With the shoulder and wrist known and two fixed bone lengths, the law of cosines
 
 ### Wrist and fingers a real hand can make
 
-[`src/components/signerRig.ts`, line 774](../src/components/signerRig.ts#L774)
+[`src/components/signerRig.ts`, line 784](../src/components/signerRig.ts#L784)
 
 The hand's turn relative to the forearm is split into a twist along the forearm (up to 100 degrees, mostly shown by the forearm, as its two bones cross) and a bend (70 towards the palm, 60 back, 25 sideways). Knuckles bend -25 to 95 degrees; the two other finger joints are hinges.
 
@@ -413,7 +413,7 @@ A single recorded sample of a letter can be wrong, so each letter is built from 
 
 ### Animation timeline
 
-[`src/components/SignPlayer.tsx`, line 37](../src/components/SignPlayer.tsx#L37)
+[`src/components/SignPlayer.tsx`, line 39](../src/components/SignPlayer.tsx#L39)
 
 Signs become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.
 
@@ -427,7 +427,7 @@ Signs become key poses 33 ms apart; letters become a raised hand held for half a
 
 ### Text to signs
 
-[`src/core/learn/phrase.ts`, line 93](../src/core/learn/phrase.ts#L93)
+[`src/core/learn/phrase.ts`, line 102](../src/core/learn/phrase.ts#L102)
 
 Greedy longest match against every way of writing each sign (English, French, Arabic, aliases), so "thank you" and "ice cream" become one sign. Articles and "to be" are left out, as in ASL; other words are fingerspelled.
 
