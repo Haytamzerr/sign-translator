@@ -1,7 +1,7 @@
 /**
- * Phrase to signs: type a sentence, watch it signed. Known words use their
- * recorded sign; names and other words are fingerspelled letter by letter;
- * words ASL leaves out are shown greyed.
+ * Phrase to signs: type a sentence, watch it signed. Known words play a
+ * native signer's video; names and other words are fingerspelled letter by
+ * letter; words ASL leaves out are shown greyed.
  */
 
 import { useMemo, useState } from 'react';
@@ -11,8 +11,8 @@ import type { Translate } from '../i18n/strings';
 import type { Settings } from '../state/settings';
 import { Segmented, Toggle } from './controls';
 import { IconExternal, IconPause, IconPlay, IconReplay } from './icons';
-import { SignPlayer, type Clip } from './SignPlayer';
-import { clipFor, useLearningData, useMocap, videoLink } from './useLearningData';
+import { SignVideoPlayer, type VideoClip } from './SignVideoPlayer';
+import { clipFor, useLearningData, videoLink } from './useLearningData';
 
 const EXAMPLES: Record<Settings['uiLanguage'], string[]> = {
   en: ['Hello, my name is Sara', 'Thank you, see you tomorrow', 'I like pizza and ice cream', 'Where is my dog?'],
@@ -32,17 +32,14 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
   const [mirror, setMirror] = useState(true);
   const [replay, setReplay] = useState(0);
 
-  const signLabels = useMemo(() => items.flatMap((item) => (item.kind === 'sign' ? [item.label] : [])), [items]);
-  const mocap = useMocap(signLabels, data);
-
   // Clips to play, and which phrase item (and letter) each clip belongs to.
   const { clips, owners } = useMemo(() => {
-    const clips: Clip[] = [];
+    const clips: VideoClip[] = [];
     const owners: { item: number; letter: number }[] = [];
     items.forEach((item, i) => {
       if (only !== null && only !== i) return;
       if (item.kind === 'sign') {
-        const c = clipFor(item.label, data, mocap.clips);
+        const c = clipFor(item.label, data);
         if (c) {
           clips.push(c);
           owners.push({ item: i, letter: -1 });
@@ -58,7 +55,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
       }
     });
     return { clips, owners };
-  }, [items, only, data, mocap.clips]);
+  }, [items, only, data]);
 
   const show = (value: string) => {
     setText(value);
@@ -119,14 +116,10 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
       ) : (
         <div className="phrase-body">
           <div className="learn-card phrase-player">
-            {data.demos && mocap.ready ? (
-              <SignPlayer
+            {data.videos ? (
+              <SignVideoPlayer
                 clips={clips}
-                neutral={data.demos.neutral}
-                layout={data.demos.layout}
-                rig={data.demos.rig}
-                resetLabel={t('playerFront')}
-                failedLabel={t('player3dMissing')}
+                failedLabel={t('playerVideoMissing')}
                 speed={speed}
                 mirror={mirror}
                 loop={loop}
@@ -176,6 +169,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
               <Toggle label={t('phraseLoop')} checked={loop} onChange={setLoop} />
               <Toggle label={t('learnMirror')} checked={mirror} onChange={setMirror} />
             </div>
+            <p className="video-credit">{t('videoCredit')}</p>
           </div>
 
           <ol className="phrase-items">
@@ -198,7 +192,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
                     </span>
                     <span className="phrase-item-sub">
                       {item.kind === 'sign' &&
-                        `${translateAslLabel(item.label, settings.uiLanguage)} · ${(WORDS[item.label]?.[0] ?? item.label).toUpperCase()}`}
+                        `${translateAslLabel(item.label, settings.uiLanguage)} · ${data.videos?.gloss(item.label) ?? ''}`}
                       {item.kind === 'spell' && (
                         <>
                           {t('phraseSpelled')}:{' '}

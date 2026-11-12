@@ -1,0 +1,9 @@
+The sign videos in this folder come from ASL Signbank
+(https://aslsignbank.haskins.yale.edu), Haskins Laboratories, Yale University,
+licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+Changes: the still frames before and after each sign were cut, the picture was
+cropped to 4:3, scaled to 360 pixels high and re-encoded without sound
+(training/signbank_videos.py). These adapted videos are shared under the same
+license. They may not be used commercially.

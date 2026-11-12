@@ -337,7 +337,7 @@ Three dense layers (63 -> 128 -> 64 -> 26) with ReLU, then softmax. The input is
 
 ### From frames to letters
 
-[`src/core/letters.ts`, line 123](../src/core/letters.ts#L123)
+[`src/core/letters.ts`, line 112](../src/core/letters.ts#L112)
 
 A letter is written when the same confident guess is held for 350 ms. It can be written again only after the hand moves or changes: that is how double letters (LL in HELLO) are spelled.
 
@@ -349,75 +349,35 @@ Only the largest really detected hand, held still and raised (wrist in the upper
 
 ## 9. Learn and Phrase to signs
 
-### Recorded demonstrations
+### Real signer videos, trimmed
 
-[`src/core/learn/demos.ts`, line 123](../src/core/learn/demos.ts#L123)
+[`training/signbank_videos.py`, line 167](../training/signbank_videos.py#L167)
 
-Each of the 250 signs is the average of up to 20 real recordings that the trained model recognizes, aligned in time with DTW first (DTW Barycenter Averaging), stored as 159 points per frame (x, y and depth) in 16-bit integers.
+Each sign is shown by a native signer (ASL Signbank, CC BY-NC-SA 4.0). The still frames before and after the sign are found by comparing every frame with the first and the last one (average grey-level change above 2.5 out of 255), and cut, so a sentence plays without pauses. Videos are cropped to 4:3, 360 pixels high, silent: about 40 KB each.
+
+> **In class:** Frame differencing: the simplest motion detector, comparing pixels between frames.
+
+### Which video to show
+
+[`src/core/learn/signVideos.ts`, line 28](../src/core/learn/signVideos.ts#L28)
+
+One index file maps each built-in sign, each letter and about 1,400 English words and phrases to a clip. Built-in sign labels were matched to Signbank signs by hand where the names differ (for example "food" is EAT, "kitty" is KITTEN).
+
+### Two players taking turns
+
+[`src/components/SignVideoPlayer.tsx`, line 89](../src/components/SignVideoPlayer.tsx#L89)
+
+Two video elements take turns: while one plays a sign, the other already loads the next one, so the next sign starts without waiting. Speed is the video playback rate (letters 1.6 times faster, as signers spell quickly); mirroring flips the picture horizontally.
+
+> **In class:** Double buffering: preparing the next frame or clip off screen while the current one is shown.
+
+### Recorded sign movements
+
+[`src/core/learn/demos.ts`, line 73](../src/core/learn/demos.ts#L73)
+
+Each of the 250 signs is also kept as the average of up to 20 real recordings, aligned in time with DTW first (DTW Barycenter Averaging), stored as 159 points per frame in 16-bit integers. They are not shown: they serve as examples of other signs when you teach your own (section 10).
 
 > **In class:** Averaging removes each signer's tracking noise and missing frames; aligning in time first keeps a fast and a slow signer from blurring each other.
-
-### A body with fixed bone lengths
-
-[`src/core/learn/figure.ts`, line 81](../src/core/learn/figure.ts#L81)
-
-The camera sees depth badly, so drawn as recorded the arms would stretch and shrink. Each bone keeps a fixed length; the picture gives its left-right and up-down direction, and the depth is solved with Pythagoras: depth = sqrt(length² - seen length²).
-
-> **In class:** This is how 2D-to-3D pose lifting works: known bone lengths turn a flat picture into a 3D pose (the only unknown left is whether each bone points towards or away from the camera).
-
-### Hands that touch the face
-
-[`src/components/signerRig.ts`, line 497](../src/components/signerRig.ts#L497)
-
-The picture shows well where a hand is in front of the face, not how far in front. So the hand point nearest the face is put on the model's face at the same place, measured from the eyes (in eye distances) and down to the mouth: a sign at the chin touches the chin.
-
-> **In class:** Contact constraints: animation systems pin hands and feet to the places they touch, so differences in body proportions do not leave a gap.
-
-### Never through the body
-
-[`src/components/signerRig.ts`, line 177](../src/components/signerRig.ts#L177)
-
-The torso is measured from the model's own surface (a cross-section every 2 cm) and the head as a rounded box. A hand point inside is moved out through the front, along a line from behind the body; deeper points count more.
-
-> **In class:** Collision volumes: simple shapes standing in for a detailed body, so testing a point is a few multiplications.
-
-### Arms by inverse kinematics
-
-[`src/components/signerRig.ts`, line 613](../src/components/signerRig.ts#L613)
-
-With the shoulder and wrist known and two fixed bone lengths, the law of cosines gives where the elbow is along the shoulder-wrist line and how far off it: the elbow is on a circle. The recording says roughly where on it; if the arm would pass through the body there, the elbow turns along the circle until it does not.
-
-> **In class:** Two-bone IK with a pole vector: the standard way games place arms and legs.
-
-### Wrist and fingers a real hand can make
-
-[`src/components/signerRig.ts`, line 784](../src/components/signerRig.ts#L784)
-
-The hand's turn relative to the forearm is split into a twist along the forearm (up to 100 degrees, mostly shown by the forearm, as its two bones cross) and a bend (70 towards the palm, 60 back, 25 sideways). Knuckles bend -25 to 95 degrees; the two other finger joints are hinges.
-
-> **In class:** Swing-twist decomposition and joint limits keep a skeleton anatomically possible.
-
-### Smooth like a body
-
-[`src/components/signerRig.ts`, line 224](../src/components/signerRig.ts#L224)
-
-Each wrist target moves like a mass on a critically damped spring: it speeds up and slows down smoothly, never overshoots, about 50 ms behind. Each joint then glides to its rotation; the chest and head are slower than the fingers.
-
-> **In class:** Second-order smoothing: acceleration stays bounded, which is what makes motion look natural rather than mechanical.
-
-### The 26 letters, defined exactly
-
-[`src/core/learn/handshapes.ts`, line 121](../src/core/learn/handshapes.ts#L121)
-
-A single recorded sample of a letter can be wrong, so each letter is built from joint angles (how much each finger joint bends, where the thumb points, how the hand is held) into the same 21 points the tracker gives.
-
-### Animation timeline
-
-[`src/components/SignPlayer.tsx`, line 39](../src/components/SignPlayer.tsx#L39)
-
-Signs become key poses 33 ms apart; letters become a raised hand held for half a second, shown in a close-up. Points are interpolated between key poses, with easing for transitions.
-
-> **In class:** Keyframe animation with linear and smoothstep interpolation, the same idea as in video games.
 
 ### Scoring practice
 
@@ -427,9 +387,9 @@ Signs become key poses 33 ms apart; letters become a raised hand held for half a
 
 ### Text to signs
 
-[`src/core/learn/phrase.ts`, line 102](../src/core/learn/phrase.ts#L102)
+[`src/core/learn/phrase.ts`, line 107](../src/core/learn/phrase.ts#L107)
 
-Greedy longest match against every way of writing each sign (English, French, Arabic, aliases), so "thank you" and "ice cream" become one sign. Articles and "to be" are left out, as in ASL; other words are fingerspelled.
+Greedy longest match against every way of writing each sign (English, French, Arabic, aliases) and every English word with a video, so "thank you" and "ice cream" become one sign. Articles and "to be" are left out, as in ASL; other words are fingerspelled.
 
 > **In class:** Glossing: ASL has its own grammar, so a word-by-word mapping is only an approximation.
 

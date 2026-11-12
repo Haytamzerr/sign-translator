@@ -23,7 +23,7 @@ import type { Sign } from './core/types';
 import { SIGN_LANGUAGES, speechLang, translator, type StringKey } from './i18n/strings';
 import { SignEngine } from './state/engine';
 
-// The Learn and Phrase views include the 3D figure (three.js); they load on first use.
+// The Learn and Phrase views load on first use.
 const LearnView = lazy(() => import('./components/LearnView').then((m) => ({ default: m.LearnView })));
 const PhraseView = lazy(() => import('./components/PhraseView').then((m) => ({ default: m.PhraseView })));
 const viewLoading = (
