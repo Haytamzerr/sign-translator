@@ -500,17 +500,20 @@ export class SignerRig {
     const headP = this.worldP.get('head');
     if (!h || !headQ || !headP) return null;
     const { center, half } = h.box;
-    // Distance of each hand point to the face's centre, in face sizes.
-    const dist = HAND_CHECK.map((i) => Math.hypot((hand[i]![0] - center[0]) / half[0], (hand[i]![1] - center[1]) / half[1]));
+    // Distance of each hand point to the face's centre, in face sizes. With
+    // motion capture, how far in front of the face a point is counts too (in
+    // the same units, beyond the first 4 cm or so, the nose and the cheeks).
+    // The recordings were transferred to a generic skeleton, which moved
+    // hands that touched the face a little away from it, so a point some
+    // centimetres in front of the face still counts as touching.
+    const dist = HAND_CHECK.map((i) => {
+      const d = Math.hypot((hand[i]![0] - center[0]) / half[0], (hand[i]![1] - center[1]) / half[1]);
+      if (!fig.measured) return d;
+      const gap = Math.max(0, hand[i]![2] - h.features.eyesDepth - 0.1) / half[0];
+      return Math.hypot(d, gap);
+    });
     const nearest = Math.min(...dist);
-    let weight = 1 - smoothstep(1.15, 1.7, nearest);
-    // Motion capture also measures how far in front of the face the hand is:
-    // only a hand near the face's depth touches it.
-    if (fig.measured) {
-      const n = dist.indexOf(nearest);
-      const gap = hand[HAND_CHECK[n]!]![2] - h.features.eyesDepth;
-      weight *= 1 - smoothstep(0.12, 0.3, gap);
-    }
+    const weight = 1 - smoothstep(1.15, 1.7, nearest);
     if (weight <= 0) return null;
     // The touching point is the one nearest the face. When two are about as
     // near, both share the touch, so the hand does not jump from one to the
