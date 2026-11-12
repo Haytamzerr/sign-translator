@@ -12,7 +12,7 @@ import type { Settings } from '../state/settings';
 import { Segmented, Toggle } from './controls';
 import { IconExternal, IconPause, IconPlay, IconReplay } from './icons';
 import { SignPlayer, type Clip } from './SignPlayer';
-import { clipFor, useLearningData, videoLink } from './useLearningData';
+import { clipFor, useLearningData, useMocap, videoLink } from './useLearningData';
 
 const EXAMPLES: Record<Settings['uiLanguage'], string[]> = {
   en: ['Hello, my name is Sara', 'Thank you, see you tomorrow', 'I like pizza and ice cream', 'Where is my dog?'],
@@ -32,6 +32,9 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
   const [mirror, setMirror] = useState(true);
   const [replay, setReplay] = useState(0);
 
+  const signLabels = useMemo(() => items.flatMap((item) => (item.kind === 'sign' ? [item.label] : [])), [items]);
+  const mocap = useMocap(signLabels, data);
+
   // Clips to play, and which phrase item (and letter) each clip belongs to.
   const { clips, owners } = useMemo(() => {
     const clips: Clip[] = [];
@@ -39,7 +42,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
     items.forEach((item, i) => {
       if (only !== null && only !== i) return;
       if (item.kind === 'sign') {
-        const c = clipFor(item.label, data);
+        const c = clipFor(item.label, data, mocap.clips);
         if (c) {
           clips.push(c);
           owners.push({ item: i, letter: -1 });
@@ -55,7 +58,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
       }
     });
     return { clips, owners };
-  }, [items, only, data]);
+  }, [items, only, data, mocap.clips]);
 
   const show = (value: string) => {
     setText(value);
@@ -116,7 +119,7 @@ export function PhraseView({ settings, t }: { settings: Settings; t: Translate }
       ) : (
         <div className="phrase-body">
           <div className="learn-card phrase-player">
-            {data.demos ? (
+            {data.demos && mocap.ready ? (
               <SignPlayer
                 clips={clips}
                 neutral={data.demos.neutral}

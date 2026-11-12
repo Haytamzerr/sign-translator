@@ -503,7 +503,14 @@ export class SignerRig {
     // Distance of each hand point to the face's centre, in face sizes.
     const dist = HAND_CHECK.map((i) => Math.hypot((hand[i]![0] - center[0]) / half[0], (hand[i]![1] - center[1]) / half[1]));
     const nearest = Math.min(...dist);
-    const weight = 1 - smoothstep(1.15, 1.7, nearest);
+    let weight = 1 - smoothstep(1.15, 1.7, nearest);
+    // Motion capture also measures how far in front of the face the hand is:
+    // only a hand near the face's depth touches it.
+    if (fig.measured) {
+      const n = dist.indexOf(nearest);
+      const gap = hand[HAND_CHECK[n]!]![2] - h.features.eyesDepth;
+      weight *= 1 - smoothstep(0.12, 0.3, gap);
+    }
     if (weight <= 0) return null;
     // The touching point is the one nearest the face. When two are about as
     // near, both share the touch, so the hand does not jump from one to the

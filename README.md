@@ -15,13 +15,17 @@ Everything runs on your own computer. No video is uploaded anywhere.
 - Fingerspelling: the 26 letters of the ASL alphabet are recognized, so names
   and other words can be spelled; the letters build up a word in the caption
 - Learn: 14 lessons (13 topics and the alphabet) where a 3D human signer
-  performs every sign, averaged from up to 20 real signers' recordings: arms
-  placed by inverse kinematics, hands that touch the face where the sign does
-  and never pass through the body (drag to see it from the side), with exact handshapes for the 26 letters, live practice with the
-  camera scored with 1 to 3 stars, saved progress, and a quiz mode
+  performs every sign. 129 of them come from motion capture (body markers and
+  data gloves: real depth, both hands, every finger); the others are averaged
+  from up to 20 real signers' camera recordings. Arms are placed by inverse
+  kinematics, hands touch the face where the sign does and never pass through
+  the body (drag to see it from the side). Exact handshapes for the 26
+  letters, live practice with the camera scored with 1 to 3 stars, saved
+  progress, and a quiz mode
 - Phrase to signs: type a sentence in English, French or Arabic and watch it
-  signed; names and unknown words are fingerspelled, and words ASL leaves out
-  ("the", "is") are marked as such
+  signed, with about 850 signs (the 250 built-in ones and 732 motion-captured
+  English words); names and unknown words are fingerspelled, and words ASL
+  leaves out ("the", "is") are marked as such
 - Robust tracking: short tracking losses are bridged, a low-light boost helps
   in dark rooms, on-screen advice explains framing problems, and the tracker
   restarts itself after a graphics or camera failure
@@ -125,6 +129,10 @@ The sign demonstrations and the alphabet recognizer (`public/models/learn/`
 and `public/models/letters/`) are produced by `training/prepare_learning_data.py`,
 which averages up to 20 recordings of each sign (after aligning them in time)
 and trains the letter classifier.
+The motion-captured signs (`public/models/mocap/`) are converted from the
+3D-LEX animation files (`ASL_ANIM_GLB.zip` on osf.io/cv276) with
+`python training/lex_extract.py ANIM_GLB joints` then
+`python training/lex_to_app.py joints public/models/learn public/models/mocap`.
 The 3D signer (`public/models/avatar/signer.glb`) is built from the MakeHuman 2
 assets by `training/build_avatar.py`.
 To retrain it, open the notebook on Kaggle, add the
@@ -144,7 +152,14 @@ competition "Google - Isolated Sign Language Recognition", under the
 tracking use [MediaPipe](https://ai.google.dev/edge/mediapipe) by Google. The 3D signer is built
 from [MakeHuman](https://github.com/makehumancommunity/makehuman2) assets (CC0) and
 drawn with [three.js](https://threejs.org) (MIT license).
-The sign demonstrations are recordings from the same PopSign ASL dataset.
+The camera-recorded sign demonstrations are averages of recordings from the
+same PopSign ASL dataset. The motion-captured signs come from
+[3D-LEX v1.0](https://osf.io/cv276/) (O. Ranum, G. Otterspeer, J. I. Andersen,
+R. G. Belleman, F. Roelofsen, "3D-LEX v1.0: 3D Lexicons for American Sign
+Language and Sign Language of the Netherlands", 2024), CC BY 4.0, converted by
+`training/lex_extract.py` and `training/lex_to_app.py`: some recordings are
+mirrored to the right hand, lost fingertip markers are repaired, and recordings
+that are cut, frozen or without motion are left out.
 The fingerspelling recognizer is trained on the
 [ASLNow! fingerspelling dataset](https://huggingface.co/datasets/sid220/asl-now-fingerspelling)
 (MIT license). "Watch a video" links open [SignASL.org](https://www.signasl.org).

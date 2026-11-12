@@ -43,10 +43,12 @@ export interface Head {
   /** The face outline's box as seen in the picture (x, y only): centre and half sizes. */
   box: { center: [number, number]; half: [number, number] };
   /** Eyes (their middle) and mouth as seen in the picture, and the distance between the eyes. */
-  features: { eyes: [number, number]; mouth: [number, number]; eyeDistance: number };
+  features: { eyes: [number, number]; mouth: [number, number]; eyeDistance: number; eyesDepth: number };
 }
 
 export interface Figure {
+  /** True when depth was measured (motion capture) rather than guessed. */
+  measured: boolean;
   left: Arm;
   right: Arm;
   head: Head | null;
@@ -106,7 +108,7 @@ function handOf(pose: Pose, start: number): Vec3[] | null {
   return out;
 }
 
-function solveArm(pose: Pose, layout: DemoLayout, rig: Rig, side: 'left' | 'right'): Arm {
+function solveArm(pose: Pose, layout: DemoLayout, rig: Rig, side: 'left' | 'right', measured: boolean): Arm {
   const b = layout.body[0];
   const [sh, el, wr] =
     side === 'left' ? [BODY.leftShoulder, BODY.leftElbow, BODY.leftWrist] : [BODY.rightShoulder, BODY.rightElbow, BODY.rightWrist];
@@ -116,7 +118,7 @@ function solveArm(pose: Pose, layout: DemoLayout, rig: Rig, side: 'left' | 'righ
   const rest = (from: Vec3, len: number): Vec3 => [from[0], from[1] - len * 0.995, from[2] + len * 0.0999];
 
   const seenElbow = toScene(point(pose, b + el));
-  const elbow = finite(seenElbow) ? placeBone(shoulder, seenElbow, rig.upperArm) : rest(shoulder, rig.upperArm);
+  const elbow = finite(seenElbow) ? (measured ? seenElbow : placeBone(shoulder, seenElbow, rig.upperArm)) : rest(shoulder, rig.upperArm);
 
   // The hand's own wrist point is more precise than the body tracker's in the
   // picture. But the hand tracker's depth is only relative to the hand itself
@@ -126,9 +128,10 @@ function solveArm(pose: Pose, layout: DemoLayout, rig: Rig, side: 'left' | 'righ
   const bodyWrist = toScene(point(pose, b + wr));
   const handWrist = toScene(point(pose, handStart));
   const seenWrist: Vec3 = hand ? [handWrist[0], handWrist[1], Number.isFinite(bodyWrist[2]) ? bodyWrist[2] : elbow[2]] : bodyWrist;
-  const wrist = finite(seenWrist) ? placeBone(elbow, seenWrist, rig.forearm) : rest(elbow, rig.forearm);
+  const wrist = finite(seenWrist) ? (measured ? seenWrist : placeBone(elbow, seenWrist, rig.forearm)) : rest(elbow, rig.forearm);
 
-  const seen: Vec3 = finite(seenWrist) ? [seenWrist[0], seenWrist[1], wrist[2]] : wrist;
+  // Motion capture measures depth: there, the recorded wrist is used as is.
+  const seen: Vec3 = finite(seenWrist) ? [seenWrist[0], seenWrist[1], measured ? seenWrist[2] : wrist[2]] : wrist;
   return {
     shoulder,
     elbow,
@@ -152,11 +155,12 @@ function centroid(pose: Pose, [from, to]: [number, number]): Vec3 | null {
  * The head's position and the way the face points: across from eye to eye,
  * up from the lips to the eyebrows, and forward out of the face.
  */
-function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3): Head | null {
+function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3, measured: boolean): Head | null {
   const ovalSeen = centroid(pose, layout.faceOval);
   // The head sits above the shoulders: its depth comes from the body, not from
   // the face tracker (whose depth is only meaningful relative to the face).
-  const oval: Vec3 | null = ovalSeen && [ovalSeen[0], ovalSeen[1], neckBase[2] + rig.faceWidth * 0.35];
+  // Motion capture measures it.
+  const oval: Vec3 | null = ovalSeen && (measured ? ovalSeen : [ovalSeen[0], ovalSeen[1], neckBase[2] + rig.faceWidth * 0.35]);
   const eyeA = centroid(pose, layout.eyeL);
   const eyeB = centroid(pose, layout.eyeR);
   const lips = centroid(pose, layout.lips);
@@ -186,13 +190,18 @@ function solveHead(pose: Pose, layout: DemoLayout, rig: Rig, neckBase: Vec3): He
       eyes: [(eyeA[0] + eyeB[0]) / 2, (eyeA[1] + eyeB[1]) / 2],
       mouth: [lips[0], lips[1]],
       eyeDistance: Math.max(1e-3, Math.hypot(eyeB[0] - eyeA[0], eyeB[1] - eyeA[1])),
+      eyesDepth: (eyeA[2] + eyeB[2]) / 2,
     },
   };
 }
 
-export function solveFigure(pose: Pose, layout: DemoLayout, rig: Rig): Figure {
-  const left = solveArm(pose, layout, rig, 'left');
-  const right = solveArm(pose, layout, rig, 'right');
+/**
+ * `measured`: the recording's depth is real (motion capture), not guessed from
+ * a camera picture.
+ */
+export function solveFigure(pose: Pose, layout: DemoLayout, rig: Rig, measured = false): Figure {
+  const left = solveArm(pose, layout, rig, 'left', measured);
+  const right = solveArm(pose, layout, rig, 'right', measured);
   const center = scale(add(left.shoulder, right.shoulder), 0.5);
   const line = sub(left.shoulder, right.shoulder);
   // The shoulder line points to the viewer's right; its depth is limited, since
@@ -200,9 +209,10 @@ export function solveFigure(pose: Pose, layout: DemoLayout, rig: Rig): Figure {
   const across = normalize([Math.abs(line[0]) < 1e-6 ? 1 : line[0], line[1], Math.max(-0.35, Math.min(0.35, line[2]))]);
   const oriented: Vec3 = across[0] < 0 ? scale(across, -1) : across;
   return {
+    measured,
     left,
     right,
-    head: solveHead(pose, layout, rig, center),
+    head: solveHead(pose, layout, rig, center, measured),
     chest: { center, across: oriented, width: Math.hypot(line[0], line[1]) || 1 },
   };
 }

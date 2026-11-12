@@ -15,7 +15,7 @@ import { Segmented, Toggle } from './controls';
 import { IconExternal, IconNext, IconPrev, IconReplay, IconStar } from './icons';
 import { SignPlayer } from './SignPlayer';
 import { Stage } from './Stage';
-import { clipFor, useLearningData, videoLink } from './useLearningData';
+import { clipFor, useLearningData, useMocap, videoLink } from './useLearningData';
 
 type Mode = 'learn' | 'quiz';
 interface Feedback {
@@ -144,10 +144,11 @@ export function LearnView({
 
   // The same clip object while the word stays the same: the camera makes this
   // view redraw many times per second, and a new clip would restart the animation.
+  const mocap = useMocap(current ? [current] : [], data);
   const clips = useMemo(() => {
-    const clip = current ? clipFor(current, data) : null;
+    const clip = current && mocap.ready ? clipFor(current, data, mocap.clips) : null;
     return clip ? [clip] : [];
-  }, [current, data]);
+  }, [current, data, mocap.ready, mocap.clips]);
   const learned = (ids: string[]) => ids.filter((id) => (progress[id] ?? 0) > 0).length;
   const topicItems = (id: string) =>
     id === 'alphabet' ? ALPHABET : (TOPICS.find((x) => x.id === id)?.signs ?? []).filter((s) => data.demos?.has(s));
@@ -227,7 +228,11 @@ export function LearnView({
                   <span className="learn-word-main">{label(current)}</span>
                   {gloss(current) && <span className="learn-word-gloss">{gloss(current)}</span>}
                 </div>
-                {showDemo ? (
+                {showDemo && !mocap.ready ? (
+                  <div className="player">
+                    <div className="spinner" aria-hidden="true" />
+                  </div>
+                ) : showDemo ? (
                   <SignPlayer
                     clips={clips}
                     neutral={data.demos.neutral}
