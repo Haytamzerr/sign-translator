@@ -180,6 +180,17 @@ def augment(raw):
     if len(raw) > 10 and random.random() < 0.3:                 # trim start or end
         a = random.randint(0, len(raw) // 8); b = len(raw) - random.randint(0, len(raw) // 8)
         raw = raw[a:b]
+    if random.random() < 0.5:                                   # each hand turned and resized a little
+        for start in (0, 21):
+            hand = raw[:, start:start + 21]
+            wrist = hand[:, :1]
+            if np.isnan(wrist).all(): continue
+            a = math.radians(random.uniform(-12, 12)); s = random.uniform(0.9, 1.1)
+            rot = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]], np.float32)
+            raw[:, start:start + 21] = ((hand - wrist) @ rot.T) * s + wrist
+    if len(raw) > 12 and random.random() < 0.3:                 # hide a short stretch of time
+        n = random.randint(1, max(1, len(raw) // 8)); a = random.randint(0, len(raw) - n)
+        raw[a:a + n] = np.nan
     if random.random() < 0.15:                                  # hide the body points
         raw[:, 42:] = np.nan
     return raw
@@ -214,8 +225,19 @@ print(len(tr_idx), 'training /', len(val_idx), 'validation recordings')
 # Only standard operations, so it exports cleanly to the browser.
 
 # %%
-# Smaller network on CPU so training finishes in a few hours.
-D = 192 if DEVICE == 'cuda' else 128
+# Smaller network on CPU so training finishes in a few hours. ASL_DIM and
+# ASL_DEPTH make it wider (numbers per frame) and deeper (blocks).
+D = int(os.environ.get('ASL_DIM', 192 if DEVICE == 'cuda' else 128))
+DEPTH = int(os.environ.get('ASL_DEPTH', 2))
+DROP_PATH = float(os.environ.get('ASL_DROP_PATH', 0.0))
+
+def drop_path(h, training):
+    """Stochastic depth: during training a block is sometimes skipped for a
+    whole recording, so the network cannot rely on any single block."""
+    if not training or DROP_PATH <= 0:
+        return h
+    keep = (torch.rand(h.shape[0], 1, 1, device=h.device) > DROP_PATH).to(h.dtype)
+    return h * keep / (1 - DROP_PATH)
 
 class ConvBlock(nn.Module):
     def __init__(self, d, k=17, expand=2, drop=0.2):
@@ -228,7 +250,7 @@ class ConvBlock(nn.Module):
     def forward(self, x, m):
         h = F.silu(self.up(self.ln(x))) * m[..., None]
         h = F.silu(self.dw(h.transpose(1, 2)).transpose(1, 2))
-        return (x + self.drop(self.down(h))) * m[..., None]
+        return (x + drop_path(self.drop(self.down(h)), self.training)) * m[..., None]
 
 class AttnBlock(nn.Module):
     def __init__(self, d, heads=4, drop=0.2):
@@ -243,15 +265,15 @@ class AttnBlock(nn.Module):
         att = (q @ k.transpose(-1, -2)) / math.sqrt(d // self.h)
         att = att + (1.0 - m[:, None, None, :]) * -1e4          # ignore padding frames
         h = (att.softmax(-1) @ v).transpose(1, 2).reshape(b, t, d)
-        x = x + self.drop(self.proj(h))
-        x = x + self.drop(self.ff2(F.silu(self.ff1(self.ln2(x)))))
+        x = x + drop_path(self.drop(self.proj(h)), self.training)
+        x = x + drop_path(self.drop(self.ff2(F.silu(self.ff1(self.ln2(x))))), self.training)
         return x * m[..., None]
 
 class SignNet(nn.Module):
     def __init__(self, n_classes):
         super().__init__()
         self.stem = nn.Sequential(nn.Linear(N_FEATURES, D), nn.LayerNorm(D))
-        self.blocks = nn.ModuleList([blk for _ in range(2) for blk in (ConvBlock(D), ConvBlock(D), ConvBlock(D), AttnBlock(D))])
+        self.blocks = nn.ModuleList([blk for _ in range(DEPTH) for blk in (ConvBlock(D), ConvBlock(D), ConvBlock(D), AttnBlock(D))])
         self.head = nn.Sequential(nn.LayerNorm(D), nn.Dropout(0.4), nn.Linear(D, n_classes))
     def forward(self, x, mask):
         x = self.stem(x) * mask[..., None]
@@ -288,19 +310,36 @@ def set_lr(progress):
 scaler = torch.amp.GradScaler(enabled=DEVICE == 'cuda')
 loss_fn = nn.CrossEntropyLoss(label_smoothing=0.2)
 
+# A slowly moving average of the weights (EMA) is evaluated and kept: it is
+# smoother than the weights at any single step and usually generalizes better.
+import copy
+ema = copy.deepcopy(model).eval()
+for p_ in ema.parameters(): p_.requires_grad_(False)
+EMA_DECAY = float(os.environ.get('ASL_EMA', 0.999))
+ema_steps = 0
+def update_ema():
+    # Early on the average follows faster, so it does not drag the random
+    # starting weights along.
+    global ema_steps
+    ema_steps += 1
+    decay = min(EMA_DECAY, (1 + ema_steps) / (10 + ema_steps))
+    with torch.no_grad():
+        for e, p_ in zip(ema.parameters(), model.parameters()):
+            e.mul_(decay).add_(p_.detach(), alpha=1 - decay)
+
 def evaluate():
     model.eval(); correct = total = top5 = 0
     with torch.no_grad():
         for x, m, y in va_loader:
             x, m, y = x.to(DEVICE), m.to(DEVICE), y.to(DEVICE)
-            logits = model(x, m)
+            logits = ema(x, m)
             correct += (logits.argmax(1) == y).sum().item()
             top5 += (logits.topk(min(5, logits.shape[1]), 1).indices == y[:, None]).any(1).sum().item()
             total += len(y)
     model.train()
     return correct / total, top5 / total
 
-best = 0.0
+best = -1.0
 start = time.time(); step = 0; done = False
 for epoch in range(EPOCHS):
     t0 = time.time(); running = 0.0; n = 0
@@ -315,11 +354,12 @@ for epoch in range(EPOCHS):
         scaler.scale(loss).backward()
         scaler.unscale_(opt); nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt); scaler.update()
+        update_ema()
         running += loss.item()
     if n == 0: break
     acc, acc5 = evaluate()
     if acc > best:
-        best = acc; torch.save(model.state_dict(), OUT / 'best.pt')
+        best = acc; torch.save(ema.state_dict(), OUT / 'best.pt')
     print(f'epoch {epoch + 1:3d}  loss {running / n:.3f}  val top-1 {acc:.3f}  top-5 {acc5:.3f}  ({time.time() - t0:.0f} s, {100 * min(progress, 1):.0f}% of schedule)', flush=True)
     if done: break
 
