@@ -15,7 +15,7 @@ import { IconFront } from './icons';
 import { Avatar, type AvatarPalette } from './avatar';
 
 export type Clip =
-  | { kind: 'sign'; label: string; frames: Pose[] }
+  | { kind: 'sign'; label: string; frames: Pose[]; measured?: boolean }
   | { kind: 'letter'; letter: string; shape: HandShape; hold?: LetterHold };
 
 interface Key {
@@ -27,6 +27,8 @@ interface Key {
   clip: number;
   /** Letters get a close-up of the hand. */
   letter: boolean;
+  /** Depth measured (motion capture) rather than guessed from a camera picture. */
+  measured: boolean;
 }
 
 const FRAME_MS = 1000 / 30;
@@ -39,11 +41,11 @@ export function buildTimeline(clips: Clip[], neutral: Pose, layout: DemoLayout, 
   clips.forEach((clip, ci) => {
     if (clip.kind === 'sign') {
       const frames = prepareFrames(clip.frames, layout);
-      frames.forEach((pose, fi) => keys.push({ pose, blend: fi === 0 ? 240 : FRAME_MS, hold: 0, clip: ci, letter: false }));
+      frames.forEach((pose, fi) => keys.push({ pose, blend: fi === 0 ? 240 : FRAME_MS, hold: 0, clip: ci, letter: false, measured: !!clip.measured }));
       const last = keys[keys.length - 1];
       if (last) last.hold = PAUSE_BETWEEN_CLIPS_MS;
     } else {
-      keys.push({ pose: letterPose(neutral, layout, rig, clip.shape, clip.hold), blend: LETTER_BLEND_MS, hold: LETTER_HOLD_MS, clip: ci, letter: true });
+      keys.push({ pose: letterPose(neutral, layout, rig, clip.shape, clip.hold), blend: LETTER_BLEND_MS, hold: LETTER_HOLD_MS, clip: ci, letter: true, measured: false });
     }
   });
   return keys;
@@ -218,6 +220,7 @@ export function SignPlayer({
       }
       let pose: Pose = neutral;
       let closeUp = false;
+      let measured = false;
       if (keys.length) {
         const cur = keys[k]!;
         const prev = k > 0 ? keys[k - 1]!.pose : looped ? loopFrom : neutral;
@@ -232,12 +235,14 @@ export function SignPlayer({
           pose = splinePose(before, prev, cur.pose, after, t, scratch);
         }
         closeUp = cur.letter;
+        // During the blend into a sign, the previous key's kind still applies.
+        measured = cur.measured && (cur.blend <= FRAME_MS || k === 0 || t > 0.5);
         if (cur.clip !== clip) {
           clip = cur.clip;
           s.onClipChange?.(clip);
         }
       }
-      avatar.update(solveFigure(pose, layout, rig), now - lastDraw, snapNext);
+      avatar.update(solveFigure(pose, layout, rig, measured), now - lastDraw, snapNext);
       lastDraw = now;
       snapNext = false;
       const inset = avatar.render(s.mirror, closeUp);

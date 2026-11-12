@@ -2,7 +2,8 @@
  * Phrase to signs: turns typed text into a sequence of signs to show.
  *
  * Each word (or group of words such as "thank you" or "ice cream") is matched
- * against the 250 built-in signs, in English, French or Arabic. A word with no
+ * against the 250 built-in signs, in English, French or Arabic, and against
+ * the motion-captured signs (English words). A word with no
  * sign is spelled with the manual alphabet, letter by letter, which is also
  * what signers do for names.
  */
@@ -71,6 +72,13 @@ export function normalizeWord(word: string): string {
 
 let index: Map<string, string> | null = null;
 let longest = 1;
+/** Extra English words with a sign (motion-captured signs), added once loaded. */
+let extraWords: string[] = [];
+
+export function addPhraseWords(words: string[]): void {
+  extraWords = words;
+  index = null;
+}
 
 /** Builds the lookup table: normalized phrase -> sign label. */
 function buildIndex(): Map<string, string> {
@@ -86,6 +94,7 @@ function buildIndex(): Map<string, string> {
     for (const w of words) for (const part of w.split('/')) add(part, label);
   }
   for (const [label, extra] of Object.entries(ALIASES)) for (const a of extra) add(a, label);
+  for (const w of extraWords) add(w, w);
   return map;
 }
 
