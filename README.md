@@ -7,6 +7,10 @@ few times, give it a meaning, and the app recognizes it from then on.
 
 Everything runs on your own computer. No video is uploaded anywhere.
 
+**[▶ Try it live](https://haytamzerr.github.io/sign-translator/)** (Chrome or Edge, with a webcam)
+
+![Learn mode: a native signer shows each sign, then the camera scores your attempt](docs/learn.png)
+
 ## Features
 
 - Built-in ASL vocabulary: a neural network trained on about 94,000 recordings
@@ -45,6 +49,8 @@ Everything runs on your own computer. No video is uploaded anywhere.
   confidence, hold time, movement threshold, jitter reduction, captions, voice
   and theme
 - Speed indicator (frames per second and detection time)
+
+![Phrase to signs: type a sentence and watch it signed word by word](docs/phrase-to-signs.png)
 
 ## Getting started
 
@@ -157,3 +163,8 @@ The fingerspelling recognizer is trained on the
 
 Video frames are processed in the browser and never stored. The library keeps
 only hand point coordinates (no images), in the browser's local database.
+
+## License
+
+The code is released under the [MIT License](LICENSE). The datasets, models and
+sign videos listed under [Credits](#credits) keep their own licenses.
